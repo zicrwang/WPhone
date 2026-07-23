@@ -218,7 +218,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func startListener(completion: @escaping (Error?) -> Void) throws {
-        var parameters = NWParameters.tcp
+        let parameters = NWParameters.tcp
         parameters.requiredInterfaceType = .wifi
 
         let newListener = try NWListener(using: parameters, on: listenerPort)

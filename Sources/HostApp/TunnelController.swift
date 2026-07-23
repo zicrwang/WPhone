@@ -15,8 +15,8 @@ final class TunnelController: NSObject, ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var alarmTestStatus = "Not tested"
     @Published private(set) var alarmAuthorizationStatus = "unknown"
-    @Published var relayHost = Self.defaultRelayHost
-    @Published var relayPort = String(Self.defaultRelayPort)
+    @Published var relayHost = TunnelController.defaultRelayHost
+    @Published var relayPort = String(TunnelController.defaultRelayPort)
 
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
@@ -28,8 +28,10 @@ final class TunnelController: NSObject, ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            self.status = self.manager?.connection.status ?? .invalid
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.status = self.manager?.connection.status ?? .invalid
+            }
         }
     }
 
