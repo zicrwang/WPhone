@@ -1,6 +1,9 @@
 name: Build iOS app
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -10,11 +13,32 @@ env:
   PROJECT: EmptyTunnel.xcodeproj
   SCHEME: EmptyTunnel
   CONFIGURATION: Release
-  APP_BUNDLE_ID: com.example.emptytunnel
-  EXTENSION_BUNDLE_ID: com.example.emptytunnel.PacketTunnel
+  APP_BUNDLE_ID: app.star6979.lettuce4401
+  EXTENSION_BUNDLE_ID: app.star6979.lettuce4401.PacketTunnel
 
 jobs:
+  compile:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compile without signing
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
   archive:
+    needs: compile
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     env:
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -159,3 +183,16 @@ jobs:
           name: EmptyTunnel-ipa
           path: ${{ runner.temp }}/export/*.ipa
           if-no-files-found: error
+
+      - name: Remove temporary signing material
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${KEYCHAIN_PATH:-}" ]]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+          rm -f "$RUNNER_TEMP/signing.p12" \
+            "$RUNNER_TEMP/app.mobileprovision" \
+            "$RUNNER_TEMP/extension.mobileprovision" \
+            "$RUNNER_TEMP/app.plist" \
+            "$RUNNER_TEMP/extension.plist"

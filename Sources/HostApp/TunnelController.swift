@@ -6,8 +6,8 @@ import UserNotifications
 @MainActor
 final class TunnelController: NSObject, ObservableObject {
     // Change these values to the identifiers registered in the Apple Developer portal.
-    static let providerBundleIdentifier = "com.example.emptytunnel.PacketTunnel"
-    static let appGroupIdentifier = "group.com.example.emptytunnel"
+    static let providerBundleIdentifier = "app.star6979.lettuce4401.PacketTunnel"
+    static let appGroupIdentifier = "group.3970029fa0cfcf6d.1"
     static let allowedClientIPv4 = "192.168.1.10"
 
     @Published private(set) var status: NEVPNStatus = .invalid
@@ -44,6 +44,21 @@ final class TunnelController: NSObject, ObservableObject {
         } catch {
             lastError = error.localizedDescription
             SharedLogger.shared.error("Notification authorization failed: \(error.localizedDescription)")
+        }
+    }
+
+    func load() async {
+        do {
+            let managers = try await loadManagers()
+            manager = managers.first { current in
+                (current.protocolConfiguration as? NETunnelProviderProtocol)?
+                    .providerBundleIdentifier == Self.providerBundleIdentifier
+            }
+            status = manager?.connection.status ?? .invalid
+            SharedLogger.shared.debug("Loaded packet tunnel status: \(status.rawValue)")
+        } catch {
+            lastError = error.localizedDescription
+            SharedLogger.shared.error("Packet tunnel configuration load failed: \(error.localizedDescription)")
         }
     }
 

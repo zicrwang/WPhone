@@ -4,18 +4,20 @@ import NetworkExtension
 import UserNotifications
 
 final class PacketTunnelProvider: NEPacketTunnelProvider {
-    private static let ringNotificationIdentifier = "com.example.emptytunnel.ring"
+    private static let ringNotificationIdentifier = "app.star6979.lettuce4401.ring"
     private static let maximumRequestBytes = 16 * 1024
     private static let maximumConnections = 8
 
     private let log = SharedLogger.shared
-    private let listenerQueue = DispatchQueue(label: "com.example.emptytunnel.listener")
+    private let listenerQueue = DispatchQueue(label: "app.star6979.lettuce4401.listener")
     private let connectionLock = NSLock()
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var requestBuffers: [ObjectIdentifier: Data] = [:]
     private var allowedClientIPv4 = "192.168.1.10"
     private var listenerPort: NWEndpoint.Port = 8080
+    private var listenerStartCompletion: ((Error?) -> Void)?
+    private var listenerReachedReady = false
 
     override func startTunnel(
         options: [String: NSObject]?,
@@ -49,9 +51,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
 
             do {
-                try self.startListener()
-                self.log.info("LAN listener started on port \(self.listenerPort.rawValue)")
-                completionHandler(nil)
+                try self.startListener { [weak self] error in
+                    if let error {
+                        self?.log.error("LAN listener failed: \(error.localizedDescription)")
+                    } else {
+                        self?.log.info("LAN listener started on port \(self?.listenerPort.rawValue ?? 0)")
+                    }
+                    completionHandler(error)
+                }
             } catch {
                 self.log.error("LAN listener failed: \(error.localizedDescription)")
                 completionHandler(error)
@@ -66,6 +73,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         log.info("Stopping packet tunnel, reason=\(reason.rawValue)")
         listener?.cancel()
         listener = nil
+        listenerStartCompletion = nil
+        listenerReachedReady = false
 
         connectionLock.lock()
         let activeConnections = Array(connections.values)
@@ -101,19 +110,51 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
-    private func startListener() throws {
+    private func startListener(completion: @escaping (Error?) -> Void) throws {
         var parameters = NWParameters.tcp
         parameters.requiredInterfaceType = .wifi
 
         let newListener = try NWListener(using: parameters, on: listenerPort)
         newListener.stateUpdateHandler = { [weak self] state in
-            self?.log.debug("NWListener state: \(String(describing: state))")
+            self?.handleListenerState(state)
         }
         newListener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
         }
+        listenerStartCompletion = completion
+        listenerReachedReady = false
         listener = newListener
         newListener.start(queue: listenerQueue)
+    }
+
+    private func handleListenerState(_ state: NWListener.State) {
+        log.debug("NWListener state: \(String(describing: state))")
+
+        switch state {
+        case .ready:
+            listenerReachedReady = true
+            finishListenerStart(with: nil)
+        case .failed(let error):
+            let failedAfterStart = listenerReachedReady
+            listener = nil
+            finishListenerStart(with: error)
+            if failedAfterStart {
+                log.error("LAN listener stopped after becoming ready: \(error.localizedDescription)")
+                cancelTunnelWithError(error)
+            }
+        case .cancelled:
+            if !listenerReachedReady {
+                finishListenerStart(with: NSError(domain: "EmptyTunnel", code: 2))
+            }
+        default:
+            break
+        }
+    }
+
+    private func finishListenerStart(with error: Error?) {
+        guard let completion = listenerStartCompletion else { return }
+        listenerStartCompletion = nil
+        completion(error)
     }
 
     private func accept(_ connection: NWConnection) {
@@ -189,7 +230,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private func isCompleteRequest(_ data: Data) -> Bool {
         guard let text = String(data: data, encoding: .utf8) else { return false }
-        return text.contains("\r\n\r\n") || text.contains("\n")
+        if text.contains("\r\n\r\n") { return true }
+        let command = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        return command == "START_RING" || command == "STOP_RING"
     }
 
     private func process(_ data: Data, on connection: NWConnection) {
@@ -219,10 +262,23 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func commandFromRequest(_ request: String) -> String {
-        let upper = request.uppercased()
-        if upper.contains("START_RING") || upper.contains("/START") { return "START_RING" }
-        if upper.contains("STOP_RING") || upper.contains("/STOP") { return "STOP_RING" }
-        return ""
+        let normalized = request.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if normalized == "START_RING" || normalized == "STOP_RING" {
+            return normalized
+        }
+
+        guard let requestLine = request.split(whereSeparator: { $0.isNewline }).first else {
+            return ""
+        }
+        let components = requestLine.split(separator: " ", omittingEmptySubsequences: true)
+        guard components.count >= 2, components[0].uppercased() == "POST" else {
+            return ""
+        }
+        switch components[1].uppercased() {
+        case "/START_RING": return "START_RING"
+        case "/STOP_RING": return "STOP_RING"
+        default: return ""
+        }
     }
 
     private func send(status: Int, body: String, on connection: NWConnection) {

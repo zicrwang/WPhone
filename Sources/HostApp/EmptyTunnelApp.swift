@@ -11,6 +11,8 @@ struct EmptyTunnelApp: App {
 
 private struct ContentView: View {
     @StateObject private var tunnel = TunnelController()
+    @State private var logText = ""
+    @State private var showingLog = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -36,10 +38,33 @@ private struct ContentView: View {
                     .foregroundStyle(.red)
                     .font(.footnote)
             }
+
+            Button("View log") {
+                logText = SharedLogger.shared.recentLog()
+                showingLog = true
+            }
+            .buttonStyle(.bordered)
         }
         .padding()
         .task {
+            await tunnel.load()
             await tunnel.requestNotificationAuthorization()
+        }
+        .sheet(isPresented: $showingLog) {
+            NavigationView {
+                ScrollView {
+                    Text(logText)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
+                .navigationTitle("debug.log")
+                .toolbar {
+                    Button("Refresh") {
+                        logText = SharedLogger.shared.recentLog()
+                    }
+                }
+            }
         }
     }
 }

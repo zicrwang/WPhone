@@ -5,7 +5,7 @@ import os
 /// Both targets must have the same App Group entitlement.
 public final class SharedLogger {
     public static let shared = SharedLogger()
-    public static let appGroupIdentifier = "group.com.example.emptytunnel"
+    public static let appGroupIdentifier = "group.3970029fa0cfcf6d.1"
 
     private enum Level: String {
         case debug = "DEBUG"
@@ -17,9 +17,10 @@ public final class SharedLogger {
     private let fileURL: URL?
     private let osLogger: Logger
     private let timestampFormatter: ISO8601DateFormatter
+    private let maximumLogBytes = 512 * 1024
 
     private init() {
-        let subsystem = Bundle.main.bundleIdentifier ?? "com.example.emptytunnel"
+        let subsystem = Bundle.main.bundleIdentifier ?? "app.star6979.lettuce4401"
         osLogger = Logger(subsystem: subsystem, category: "runtime")
         timestampFormatter = ISO8601DateFormatter()
 
@@ -49,6 +50,20 @@ public final class SharedLogger {
         write(message(), level: .error)
     }
 
+    public func recentLog() -> String {
+        guard let fileURL else { return "App Group container is unavailable." }
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        do {
+            let data = try Data(contentsOf: fileURL)
+            return String(decoding: data, as: UTF8.self)
+        } catch {
+            return "No debug.log has been written yet."
+        }
+    }
+
     private func write(_ message: String, level: Level) {
         switch level {
         case .debug:
@@ -67,6 +82,7 @@ public final class SharedLogger {
         let line = "\(timestamp) [\(level.rawValue)] \(message)\n"
         guard let data = line.data(using: .utf8) else { return }
 
+        rotateLogIfNeeded(at: fileURL)
         if !FileManager.default.fileExists(atPath: fileURL.path) {
             FileManager.default.createFile(atPath: fileURL.path, contents: nil)
         }
@@ -80,5 +96,14 @@ public final class SharedLogger {
             // Do not recurse into this logger when the shared file is unavailable.
             osLogger.error("Unable to append debug.log: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func rotateLogIfNeeded(at fileURL: URL) {
+        guard FileManager.default.fileExists(atPath: fileURL.path),
+              let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size >= maximumLogBytes else {
+            return
+        }
+        try? FileManager.default.removeItem(at: fileURL)
     }
 }
