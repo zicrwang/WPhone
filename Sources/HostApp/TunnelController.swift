@@ -7,7 +7,6 @@ import UserNotifications
 final class TunnelController: NSObject, ObservableObject {
     static let providerBundleIdentifier = "app.wephone.vpn.PacketTunnel"
     static let appGroupIdentifier = "group.3970029fa0cfcf6d.1"
-    static let allowedClientIPv4 = "192.168.1.10"
 
     @Published private(set) var status: NEVPNStatus = .invalid
     @Published private(set) var lastError: String?
@@ -106,14 +105,14 @@ final class TunnelController: NSObject, ObservableObject {
 
         let configuration = NETunnelProviderProtocol()
         configuration.providerBundleIdentifier = Self.providerBundleIdentifier
-        configuration.serverAddress = "Empty tunnel"
+        configuration.serverAddress = "Keepalive only"
         configuration.providerConfiguration = [
-            "allowedClientIPv4": Self.allowedClientIPv4,
-            "listenerPort": 8080
+            "listenerPort": 8080,
+            "accessPolicy": "privateLANOverWiFi"
         ]
 
         manager.protocolConfiguration = configuration
-        manager.localizedDescription = "Empty Tunnel LAN Notifier"
+        manager.localizedDescription = "WPhone Background Keepalive"
         manager.isEnabled = true
         return manager
     }

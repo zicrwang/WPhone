@@ -1,6 +1,6 @@
 # WPhone
 
-这是一个可由 GitHub Actions 编译的 SwiftUI iOS App，安装后的名称为“手机信息通知”，包含一个 Packet Tunnel Provider Extension。VPN 启动后不读取 `packetFlow`，不设置包含路由，并显式排除默认路由；扩展只在 Wi-Fi 接口监听 TCP 8080 端口。
+这是一个可由 GitHub Actions 编译的 SwiftUI iOS App，安装后的名称为“手机信息通知”，包含一个 Packet Tunnel Provider Extension。VPN 只作为后台运行载体：启动后不读取 `packetFlow`，不设置包含路由，并显式排除默认路由，不承担代理、转发或流量处理。扩展只在 Wi-Fi 接口监听 TCP 8080 端口。
 
 项目不使用任何第三方 Web 或网络框架。日志同时写入 Unified Logging 和 App Group 目录中的 `debug.log`，文件达到 512 KB 时自动轮转，主 App 内可直接查看。
 
@@ -24,7 +24,42 @@
 
 ## 使用
 
-主 App 首次启动时会申请通知、本地网络和 VPN 配置权限。点击 **Start** 启动 Packet Tunnel，点击 **Stop** 停止。默认只接受来自 `192.168.1.10` 的 Wi-Fi TCP 连接；如需修改，请调整 `TunnelController.allowedClientIPv4` 后重新编译。
+主 App 首次启动时会申请通知、本地网络和 VPN 配置权限。点击 **Start** 启动 Packet Tunnel，点击 **Stop** 停止。调试后台只接受经 Wi-Fi 到达的私网来源：`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、IPv4 链路本地、IPv6 ULA/链路本地和回环地址。公网来源会在读取请求前被拒绝。
+
+VPN 连接成功后，在同一局域网的电脑访问：
+
+```text
+http://<手机的局域网IP>:8080/
+```
+
+网页包含实时隧道/监听/通知状态、信息弹出调试、电话样式通知调试和增量 `debug.log` 输出。日志按游标读取，每次最多 64 KB，不会在每次刷新时加载完整日志。服务还通过 Bonjour 发布 `_wphone-debug._tcp`。
+
+## 调试 API
+
+供 Codex、脚本或其他同网段工具使用的机器可读入口：
+
+```text
+GET  /.well-known/wphone-debug
+GET  /openapi.json
+GET  /api/status
+GET  /api/logs?cursor=<上次返回的cursor>
+POST /api/debug/message?title=<标题>&body=<内容>
+POST /api/debug/call?caller=<来电名称>
+POST /api/debug/stop
+```
+
+让同一内网电脑上的 Codex 先读取下面的发现接口，即可按 OpenAPI 路由调用：
+
+```bash
+curl http://<手机的局域网IP>:8080/.well-known/wphone-debug
+curl http://<手机的局域网IP>:8080/openapi.json
+```
+
+接口没有账号或令牌认证，同一私网内的其他设备也能读取日志和触发通知；只应在可信局域网中开启 VPN。Codex 无法仅凭项目代码自动知道手机当前 IP，需要提供 IP，或先通过 `_wphone-debug._tcp` 的 mDNS/Bonjour 记录发现服务。
+
+“电话弹出调试”使用 time-sensitive 本地通知模拟电话提醒，不是 CallKit 系统来电页，也不会建立真实通话。后台 Packet Tunnel Extension 无法把普通本地 HTTP 请求等同于合规 VoIP Push 来电流程。
+
+## 兼容指令
 
 监听器接受以下精确命令：
 

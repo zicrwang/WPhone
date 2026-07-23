@@ -7,6 +7,13 @@ public final class SharedLogger {
     public static let shared = SharedLogger()
     public static let appGroupIdentifier = "group.3970029fa0cfcf6d.1"
 
+    public struct LogSnapshot {
+        public let text: String
+        public let nextOffset: UInt64
+        public let reset: Bool
+        public let truncated: Bool
+    }
+
     private enum Level: String {
         case debug = "DEBUG"
         case info = "INFO"
@@ -61,6 +68,76 @@ public final class SharedLogger {
             return String(decoding: data, as: UTF8.self)
         } catch {
             return "No debug.log has been written yet."
+        }
+    }
+
+    /// Reads an incremental window without loading the complete log into memory.
+    public func logSnapshot(
+        after requestedOffset: UInt64?,
+        maximumBytes: Int = 64 * 1024
+    ) -> LogSnapshot {
+        guard let fileURL else {
+            return LogSnapshot(
+                text: "App Group container is unavailable.\n",
+                nextOffset: 0,
+                reset: true,
+                truncated: false
+            )
+        }
+
+        let byteLimit = max(1, min(maximumBytes, 128 * 1024))
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard FileManager.default.fileExists(atPath: fileURL.path),
+              let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+              let fileSizeNumber = attributes[.size] as? NSNumber else {
+            return LogSnapshot(text: "", nextOffset: 0, reset: requestedOffset != nil, truncated: false)
+        }
+
+        let fileSize = fileSizeNumber.uint64Value
+        var reset = false
+        let startOffset: UInt64
+
+        if let requestedOffset, requestedOffset <= fileSize {
+            startOffset = requestedOffset
+        } else {
+            reset = requestedOffset != nil
+            startOffset = fileSize > UInt64(byteLimit) ? fileSize - UInt64(byteLimit) : 0
+        }
+
+        let availableBytes = fileSize - startOffset
+        let readLength = Int(min(UInt64(byteLimit), availableBytes))
+        let truncated = (startOffset > 0 && requestedOffset == nil) || availableBytes > UInt64(byteLimit)
+
+        guard readLength > 0 else {
+            return LogSnapshot(
+                text: "",
+                nextOffset: startOffset,
+                reset: reset,
+                truncated: truncated
+            )
+        }
+
+        do {
+            let handle = try FileHandle(forReadingFrom: fileURL)
+            try handle.seek(toOffset: startOffset)
+            let data = try handle.read(upToCount: readLength) ?? Data()
+            try handle.close()
+            return LogSnapshot(
+                text: String(decoding: data, as: UTF8.self),
+                nextOffset: startOffset + UInt64(data.count),
+                reset: reset,
+                truncated: truncated
+            )
+        } catch {
+            osLogger.error("Unable to read debug.log: \(error.localizedDescription, privacy: .public)")
+            return LogSnapshot(
+                text: "Unable to read debug.log.\n",
+                nextOffset: startOffset,
+                reset: true,
+                truncated: false
+            )
         }
     }
 
