@@ -26,7 +26,7 @@
 
 ## 使用
 
-主 App 首次启动时会申请通知、AlarmKit、本地网络和 VPN 配置权限。点击 **Start** 启动 Packet Tunnel，点击 **Stop** 停止。调试后台只接受经 Wi-Fi 到达的私网来源：`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、IPv4 链路本地、IPv6 ULA/链路本地和回环地址。公网来源会在读取请求前被拒绝。
+主 App 首次启动时会申请通知、AlarmKit、本地网络和 VPN 配置权限。点击 **Start** 启动 Packet Tunnel，点击 **Stop** 停止。主 App 的 **Test Alarm** 会直接从 App 进程调度一条 3 秒后的测试提醒，**Stop Alarm** 会停止并取消当前提醒；这组按钮用于把 AlarmKit 本身的权限/配置问题与 Packet Tunnel 调度限制分开验证。调试后台只接受经 Wi-Fi 到达的私网来源：`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、IPv4 链路本地、IPv6 ULA/链路本地和回环地址。公网来源会在读取请求前被拒绝。
 
 VPN 连接成功后，在同一局域网的电脑访问：
 
@@ -34,7 +34,7 @@ VPN 连接成功后，在同一局域网的电脑访问：
 http://<手机的局域网IP>:8080/
 ```
 
-网页包含实时隧道、监听、通知、AlarmKit 权限与活动状态、信息弹出调试、AlarmKit 来电调试和增量 `debug.log` 输出。日志按游标读取，每次最多 64 KB，不会在每次刷新时加载完整日志。服务还通过 Bonjour 发布 `_wphone-debug._tcp`。
+网页包含实时隧道、监听、通知、主 App/Packet Tunnel 两份 AlarmKit 权限与活动状态、信息弹出调试、AlarmKit 来电调试和增量 `debug.log` 输出。日志按游标读取，每次最多 64 KB，不会在每次刷新时加载完整日志。服务还通过 Bonjour 发布 `_wphone-debug._tcp`。
 
 ## 局域网 API
 
@@ -97,4 +97,4 @@ Host: iphone.local:8080
 
 `NEPacketTunnelProvider` 不是永久后台运行保证。即使使用 Ad Hoc 或企业签名，iOS 仍可因系统策略、资源压力、网络切换或配置变化停止扩展。空包含路由和排除默认路由可避免主动接管普通流量，但不能承诺所有未来 iOS 版本行为完全相同。
 
-普通本地通知只能播放一次系统声音，删除已送达通知不能中断已经开始的声音。AlarmKit 的提醒样式、声音、持续时间和最终呈现由 iOS 控制；它不是永久响铃保证，也不应被当作 Critical Alert。WPhone 当前一次只保留一条活动 AlarmKit 来电，新来电会替换上一条。AlarmKit 调度从 Packet Tunnel Extension 发起，这条组合需要在目标 iOS 26.x 真机上验证；失败时会退回带“打开”操作的 time-sensitive 本地通知，并在 `debug.log` 和 `/api/status` 留下错误。
+普通本地通知只能播放一次系统声音，删除已送达通知不能中断已经开始的声音。AlarmKit 的提醒样式、声音、持续时间和最终呈现由 iOS 控制；它不是永久响铃保证，也不应被当作 Critical Alert。WPhone 当前一次只保留一条活动 AlarmKit 来电，新来电会替换上一条。Apple 公开资料只明确主 App 调度 AlarmKit，没有保证 Packet Tunnel Extension 调度；WPhone 仍会在目标 iOS 26.x 真机上直接尝试，并记录完整系统错误。失败时自动退回带“打开”操作的 time-sensitive 本地通知。

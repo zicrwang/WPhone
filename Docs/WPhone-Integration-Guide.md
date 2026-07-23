@@ -414,10 +414,10 @@ GET http://<iphone-ip>:8080/openapi.json
 1. 主 App 中 VPN 是否已连接。
 2. `GET /health` 是否返回 `ok: true`。
 3. `GET /api/status` 中 `listener.state` 是否为 `ready`。
-4. 普通消息检查 `notifications.authorization` 是否为 `authorized` 或 `provisional`；来电检查 `alarmKit.authorization` 是否为 `authorized`。
+4. 普通消息检查 `notifications.authorization` 是否为 `authorized` 或 `provisional`；来电先检查 `alarmKit.hostAuthorization` 是否为 `authorized`。`alarmKit.extensionAuthorization` 可能与主 App 不同，不能单独用它判断最终调度结果。
 5. `events.acceptedCount`、`lastEventId` 和 `lastEventEffect` 是否更新。
 6. 来电后检查 `alarmKit.active`、`activeAlarmId` 和 `activeCallKey`。
-7. 使用 `/api/logs?cursor=0` 查看 AlarmKit 或通知提交错误。
+7. 使用 `/api/logs?cursor=0` 查看 `AlarmKit alarm scheduled`，或包含 NSError domain/code 的 AlarmKit 提交错误。
 8. 检查 iOS 闹钟权限、通知设置和声音设置。
 
 HTTP `202` 只表示 WPhone 接受并提交了本地处理请求。iOS 最终是否展示 AlarmKit/通知、播放声音或以 time-sensitive 方式呈现仍由系统决定。

@@ -24,6 +24,8 @@
 	<array>
 		<string>_wphone-debug._tcp</string>
 	</array>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>用于在后台收到局域网来电信号时播放系统闹钟提醒。</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>

@@ -195,7 +195,7 @@ Content-Type: application/json
 - `GET /.well-known/wphone`：规范发现入口，返回能力、版本、事件端点和幂等策略。
 - `GET /.well-known/wphone-debug`：为旧调试客户端保留的发现入口别名。
 - `GET /openapi.json`：完整 OpenAPI 3.0.3 定义。
-- `GET /api/status`：事件计数、最近事件、幂等记录数、监听器、通知和 `alarmKit` 状态。`alarmKit` 包含授权状态、活动 ID、调用键、来电名、计划时间和打开行为。
+- `GET /api/status`：事件计数、最近事件、幂等记录数、监听器、通知和 `alarmKit` 状态。`alarmKit.hostAuthorization` 是主 App 写入的最近授权状态，`alarmKit.extensionAuthorization` 是 Packet Tunnel 当前读取值；两者可能不同。对象还包含活动 ID、调用键、来电名、计划时间和打开行为。旧字段 `alarmKit.authorization` 保留为 `extensionAuthorization` 的别名。
 - `GET /api/logs?cursor=<cursor>`：增量文本日志。
 
 正式客户端应调用 `/api/v1/events`。`/api/debug/*`、`START_RING` 和 `STOP_RING` 只用于人工诊断，不属于事件协议。

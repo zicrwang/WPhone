@@ -1,6 +1,7 @@
 import AlarmKit
 import AppIntents
 import Foundation
+import SwiftUI
 
 struct WPhoneAlarmMetadata: AlarmMetadata {
     let caller: String
@@ -19,6 +20,8 @@ enum WPhoneAlarmStore {
 
     private static let activeAlarmKey = "app.wephone.vpn.alarm.active"
     private static let pendingOpenKey = "app.wephone.vpn.alarm.pending-open"
+    private static let hostAuthorizationKey = "app.wephone.vpn.alarm.host-authorization"
+    private static let hostAuthorizationUpdatedAtKey = "app.wephone.vpn.alarm.host-authorization-updated-at"
     private static let lock = NSLock()
 
     static func activeAlarm() -> WPhoneAlarmRecord? {
@@ -61,8 +64,94 @@ enum WPhoneAlarmStore {
         return true
     }
 
+    static func saveHostAuthorization(_ value: String) {
+        lock.lock()
+        let sharedDefaults = defaults
+        sharedDefaults?.set(value, forKey: hostAuthorizationKey)
+        sharedDefaults?.set(Date(), forKey: hostAuthorizationUpdatedAtKey)
+        sharedDefaults?.synchronize()
+        lock.unlock()
+    }
+
+    static func hostAuthorization() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return defaults?.string(forKey: hostAuthorizationKey)
+    }
+
+    static func hostAuthorizationUpdatedAt() -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return defaults?.object(forKey: hostAuthorizationUpdatedAtKey) as? Date
+    }
+
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: appGroupIdentifier)
+    }
+}
+
+enum WPhoneAlarmConfiguration {
+    typealias Configuration = AlarmManager.AlarmConfiguration<WPhoneAlarmMetadata>
+
+    static func make(
+        id: UUID,
+        caller: String,
+        callKey: String,
+        triggerDate: Date
+    ) -> Configuration {
+        let title = LocalizedStringResource(stringLiteral: caller.isEmpty ? "微信来电" : caller)
+        let stopButton = AlarmButton(
+            text: "关闭",
+            textColor: .white,
+            systemImageName: "xmark.circle.fill"
+        )
+        let openButton = AlarmButton(
+            text: "打开",
+            textColor: .white,
+            systemImageName: "arrow.up.forward.app.fill"
+        )
+        let alert = AlarmPresentation.Alert(
+            title: title,
+            stopButton: stopButton,
+            secondaryButton: openButton,
+            secondaryButtonBehavior: .custom
+        )
+        let attributes = AlarmAttributes(
+            presentation: AlarmPresentation(alert: alert),
+            metadata: WPhoneAlarmMetadata(caller: caller, callKey: callKey),
+            tintColor: Color.green
+        )
+        return Configuration(
+            schedule: .fixed(triggerDate),
+            attributes: attributes,
+            stopIntent: WPhoneStopAlarmIntent(alarmID: id.uuidString),
+            secondaryIntent: WPhoneOpenAlarmIntent(alarmID: id.uuidString)
+        )
+    }
+}
+
+enum WPhoneAlarmDiagnostics {
+    static func describe(_ error: Error) -> String {
+        let nsError = error as NSError
+        var fields = [
+            "domain=\(nsError.domain)",
+            "code=\(nsError.code)",
+            "description=\(nsError.localizedDescription)"
+        ]
+        if let reason = nsError.localizedFailureReason, !reason.isEmpty {
+            fields.append("reason=\(reason)")
+        }
+        if let suggestion = nsError.localizedRecoverySuggestion, !suggestion.isEmpty {
+            fields.append("recovery=\(suggestion)")
+        }
+        let userInfo = nsError.userInfo
+            .filter { $0.key != NSLocalizedDescriptionKey }
+            .map { "\($0.key)=\(String(describing: $0.value))" }
+            .sorted()
+        if !userInfo.isEmpty {
+            fields.append("userInfo={\(userInfo.joined(separator: ", "))}")
+        }
+        return fields.joined(separator: "; ")
     }
 }
 

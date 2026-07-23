@@ -107,6 +107,27 @@ private struct ContentView: View {
                 .disabled(tunnel.status == .disconnected || tunnel.status == .invalid)
             }
 
+            Divider()
+
+            Text("AlarmKit: \(tunnel.alarmTestStatus)")
+                .font(.subheadline)
+
+            HStack(spacing: 12) {
+                Button {
+                    Task { await tunnel.scheduleAlarmKitTest() }
+                } label: {
+                    Label("Test Alarm", systemImage: "alarm.fill")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    tunnel.stopAlarmKitTest()
+                } label: {
+                    Label("Stop Alarm", systemImage: "stop.fill")
+                }
+                .buttonStyle(.bordered)
+            }
+
             if let lastError = tunnel.lastError {
                 Text(lastError)
                     .foregroundStyle(.red)

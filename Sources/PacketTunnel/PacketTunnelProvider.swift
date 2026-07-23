@@ -953,7 +953,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             ],
             "alarmKit": [
                 "supported": true,
-                "authorization": alarmKit.authorizationState,
+                "authorization": alarmKit.extensionAuthorizationState,
+                "hostAuthorization": WPhoneAlarmStore.hostAuthorization() ?? "unknown",
+                "hostAuthorizationUpdatedAt": jsonValue(
+                    WPhoneAlarmStore.hostAuthorizationUpdatedAt().map { dateFormatter.string(from: $0) }
+                ),
+                "extensionAuthorization": alarmKit.extensionAuthorizationState,
                 "active": activeAlarm != nil,
                 "activeAlarmId": jsonValue(activeAlarm?.id.uuidString),
                 "activeCallKey": jsonValue(activeAlarm?.callKey),
@@ -1262,7 +1267,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             byId('purpose').textContent = data.tunnel.purpose;
             byId('uptime').textContent = duration(data.tunnel.uptimeSeconds);
             byId('notification').textContent = data.notifications.authorization;
-            byId('alarmKit').textContent = `${data.alarmKit.authorization} · ${data.alarmKit.active ? '响铃中' : '空闲'}`;
+            byId('alarmKit').textContent = `App ${data.alarmKit.hostAuthorization} / 扩展 ${data.alarmKit.extensionAuthorization} · ${data.alarmKit.active ? '响铃中' : '空闲'}`;
             byId('requests').textContent = String(data.listener.totalRequests);
             byId('eventsAccepted').textContent = String(data.events.acceptedCount);
             byId('eventsDuplicate').textContent = String(data.events.duplicateCount);
@@ -1336,8 +1341,6 @@ private final class AlarmKitCoordinator {
         case stopped(key: String)
     }
 
-    private typealias Configuration = AlarmManager.AlarmConfiguration<WPhoneAlarmMetadata>
-
     private let manager = AlarmManager.shared
     private let eventHandler: (Event) -> Void
     private let generationLock = NSLock()
@@ -1347,7 +1350,7 @@ private final class AlarmKitCoordinator {
         self.eventHandler = eventHandler
     }
 
-    var authorizationState: String {
+    var extensionAuthorizationState: String {
         switch manager.authorizationState {
         case .notDetermined: return "not-determined"
         case .denied: return "denied"
@@ -1359,42 +1362,18 @@ private final class AlarmKitCoordinator {
     func schedule(key: String, caller: String, action: String) {
         let operation = beginOperation()
         cancelPersistedAlarm()
-        guard manager.authorizationState == .authorized else {
-            eventHandler(.scheduleFailed(
-                key: key,
-                message: "AlarmKit authorization is \(authorizationState); open WPhone and allow alarms"
-            ))
-            return
-        }
-
         let id = UUID()
-        let title = LocalizedStringResource(stringLiteral: caller.isEmpty ? "微信来电" : caller)
-        let stopButton = AlarmButton(
-            text: "关闭",
-            textColor: .white,
-            systemImageName: "xmark.circle.fill"
+        let configuration = WPhoneAlarmConfiguration.make(
+            id: id,
+            caller: caller,
+            callKey: key,
+            triggerDate: Date.now.addingTimeInterval(TimeInterval(Self.triggerDelaySeconds))
         )
-        let openButton = AlarmButton(
-            text: "打开",
-            textColor: .white,
-            systemImageName: "arrow.up.forward.app.fill"
-        )
-        let alert = AlarmPresentation.Alert(
-            title: title,
-            stopButton: stopButton,
-            secondaryButton: openButton,
-            secondaryButtonBehavior: .custom
-        )
-        let attributes = AlarmAttributes(
-            presentation: AlarmPresentation(alert: alert),
-            metadata: WPhoneAlarmMetadata(caller: caller, callKey: key),
-            tintColor: Color.green
-        )
-        let configuration = Configuration(
-            schedule: .fixed(Date.now.addingTimeInterval(TimeInterval(Self.triggerDelaySeconds))),
-            attributes: attributes,
-            stopIntent: WPhoneStopAlarmIntent(alarmID: id.uuidString),
-            secondaryIntent: WPhoneOpenAlarmIntent(alarmID: id.uuidString)
+        let hostAuthorization = WPhoneAlarmStore.hostAuthorization() ?? "unknown"
+        let extensionAuthorization = extensionAuthorizationState
+        SharedLogger.shared.debug(
+            "PacketTunnel AlarmKit schedule attempt key=\(key) id=\(id.uuidString) " +
+            "hostAuthorization=\(hostAuthorization) extensionAuthorization=\(extensionAuthorization)"
         )
 
         Task { [weak self, manager, eventHandler] in
@@ -1414,7 +1393,14 @@ private final class AlarmKitCoordinator {
                 eventHandler(.scheduled(action: action, key: key, alarmID: id))
             } catch {
                 if self?.isCurrent(operation) == true {
-                    eventHandler(.scheduleFailed(key: key, message: error.localizedDescription))
+                    let currentExtensionState = self?.extensionAuthorizationState ?? "unavailable"
+                    let details = WPhoneAlarmDiagnostics.describe(error)
+                    eventHandler(.scheduleFailed(
+                        key: key,
+                        message: "\(details); hostAuthorization=\(hostAuthorization); " +
+                            "extensionAuthorizationBefore=\(extensionAuthorization); " +
+                            "extensionAuthorizationAfter=\(currentExtensionState)"
+                    ))
                 }
             }
         }
