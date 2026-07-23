@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 env:
-  PROJECT: EmptyTunnel.xcodeproj
-  SCHEME: EmptyTunnel
+  PROJECT: WPhone.xcodeproj
+  SCHEME: WPhone
   CONFIGURATION: Release
   APP_BUNDLE_ID: app.star6979.lettuce4401
   EXTENSION_BUNDLE_ID: app.star6979.lettuce4401.PacketTunnel
@@ -160,7 +160,7 @@ jobs:
             -configuration "$CONFIGURATION" \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -archivePath "$RUNNER_TEMP/EmptyTunnel.xcarchive" \
+            -archivePath "$RUNNER_TEMP/WPhone.xcarchive" \
             clean archive \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="$TEAM_ID" \
@@ -187,14 +187,14 @@ jobs:
           </dict></plist>
           EOF
           xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/EmptyTunnel.xcarchive" \
+            -archivePath "$RUNNER_TEMP/WPhone.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: EmptyTunnel-ipa
+          name: WPhone-ipa
           path: ${{ runner.temp }}/export/*.ipa
           if-no-files-found: error
 

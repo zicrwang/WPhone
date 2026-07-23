@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A50000000000000000000001"
-               BuildableName = "EmptyTunnel.app"
-               BlueprintName = "EmptyTunnel"
-               ReferencedContainer = "container:EmptyTunnel.xcodeproj">
+               BuildableName = "WPhone.app"
+               BlueprintName = "WPhone"
+               ReferencedContainer = "container:WPhone.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -43,9 +43,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A50000000000000000000001"
-            BuildableName = "EmptyTunnel.app"
-            BlueprintName = "EmptyTunnel"
-            ReferencedContainer = "container:EmptyTunnel.xcodeproj">
+            BuildableName = "WPhone.app"
+            BlueprintName = "WPhone"
+            ReferencedContainer = "container:WPhone.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -60,9 +60,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A50000000000000000000001"
-            BuildableName = "EmptyTunnel.app"
-            BlueprintName = "EmptyTunnel"
-            ReferencedContainer = "container:EmptyTunnel.xcodeproj">
+            BuildableName = "WPhone.app"
+            BlueprintName = "WPhone"
+            ReferencedContainer = "container:WPhone.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

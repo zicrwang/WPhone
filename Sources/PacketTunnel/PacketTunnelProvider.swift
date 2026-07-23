@@ -41,7 +41,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
         setTunnelNetworkSettings(settings) { [weak self] error in
             guard let self else {
-                completionHandler(NSError(domain: "EmptyTunnel", code: 1))
+                completionHandler(NSError(domain: "WPhone", code: 1))
                 return
             }
             if let error {
@@ -144,7 +144,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
         case .cancelled:
             if !listenerReachedReady {
-                finishListenerStart(with: NSError(domain: "EmptyTunnel", code: 2))
+                finishListenerStart(with: NSError(domain: "WPhone", code: 2))
             }
         default:
             break

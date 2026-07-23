@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10000000000000000000001 /* EmptyTunnelApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* EmptyTunnelApp.swift */; };
+		A10000000000000000000001 /* WPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* WPhoneApp.swift */; };
 		A10000000000000000000002 /* TunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* TunnelController.swift */; };
 		A10000000000000000000003 /* SharedLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* SharedLogger.swift */; };
 		A10000000000000000000004 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* PacketTunnelProvider.swift */; };
@@ -40,7 +40,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		A20000000000000000000001 /* EmptyTunnelApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyTunnelApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000001 /* WPhoneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WPhoneApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* TunnelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelController.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
 		A20000000000000000000004 /* SharedLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLogger.swift; sourceTree = "<group>"; };
@@ -49,7 +49,7 @@
 		A20000000000000000000007 /* Main.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Main.entitlements; sourceTree = "<group>"; };
 		A20000000000000000000009 /* PacketTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PacketTunnel.entitlements; sourceTree = "<group>"; };
 		A20000000000000000000008 /* PacketTunnel.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = PacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		A20000000000000000000010 /* EmptyTunnel.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EmptyTunnel.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000010 /* WPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -93,7 +93,7 @@
 		A30000000000000000000003 /* HostApp */ = {
 			isa = PBXGroup;
 			children = (
-				A20000000000000000000001 /* EmptyTunnelApp.swift */,
+				A20000000000000000000001 /* WPhoneApp.swift */,
 				A20000000000000000000002 /* TunnelController.swift */,
 			);
 			path = HostApp;
@@ -136,7 +136,7 @@
 		A30000000000000000000008 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A20000000000000000000010 /* EmptyTunnel.app */,
+				A20000000000000000000010 /* WPhone.app */,
 				A20000000000000000000008 /* PacketTunnel.appex */,
 			);
 			name = Products;
@@ -145,9 +145,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A50000000000000000000001 /* EmptyTunnel */ = {
+		A50000000000000000000001 /* WPhone */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A80000000000000000000002 /* Build configuration list for PBXNativeTarget "EmptyTunnel" */;
+			buildConfigurationList = A80000000000000000000002 /* Build configuration list for PBXNativeTarget "WPhone" */;
 			buildPhases = (
 				A40000000000000000000001 /* Sources */,
 				A40000000000000000000002 /* Frameworks */,
@@ -158,9 +158,9 @@
 			dependencies = (
 				A60000000000000000000001 /* PBXTargetDependency */,
 			);
-			name = EmptyTunnel;
-			productName = EmptyTunnel;
-			productReference = A20000000000000000000010 /* EmptyTunnel.app */;
+			name = WPhone;
+			productName = WPhone;
+			productReference = A20000000000000000000010 /* WPhone.app */;
 			productType = "com.apple.product-type.application";
 		};
 		A50000000000000000000002 /* PacketTunnel */ = {
@@ -197,7 +197,7 @@
 					};
 				};
 			};
-			buildConfigurationList = A80000000000000000000001 /* Build configuration list for PBXProject "EmptyTunnel" */;
+			buildConfigurationList = A80000000000000000000001 /* Build configuration list for PBXProject "WPhone" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -210,7 +210,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A50000000000000000000001 /* EmptyTunnel */,
+				A50000000000000000000001 /* WPhone */,
 				A50000000000000000000002 /* PacketTunnel */,
 			);
 		};
@@ -221,7 +221,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000000000000000000001 /* EmptyTunnelApp.swift in Sources */,
+				A10000000000000000000001 /* WPhoneApp.swift in Sources */,
 				A10000000000000000000002 /* TunnelController.swift in Sources */,
 				A10000000000000000000003 /* SharedLogger.swift in Sources */,
 			);
@@ -384,7 +384,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A80000000000000000000001 /* Build configuration list for PBXProject "EmptyTunnel" */ = {
+		A80000000000000000000001 /* Build configuration list for PBXProject "WPhone" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A90000000000000000000001 /* Debug */,
@@ -393,7 +393,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A80000000000000000000002 /* Build configuration list for PBXNativeTarget "EmptyTunnel" */ = {
+		A80000000000000000000002 /* Build configuration list for PBXNativeTarget "WPhone" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A90000000000000000000003 /* Debug */,

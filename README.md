@@ -1,6 +1,6 @@
-# Empty Tunnel
+# WPhone
 
-这是一个可由 GitHub Actions 编译的 SwiftUI iOS App，包含一个 Packet Tunnel Provider Extension。VPN 启动后不读取 `packetFlow`，不设置包含路由，并显式排除默认路由；扩展只在 Wi-Fi 接口监听 TCP 8080 端口。
+这是一个可由 GitHub Actions 编译的 SwiftUI iOS App，安装后的名称为“手机信息通知”，包含一个 Packet Tunnel Provider Extension。VPN 启动后不读取 `packetFlow`，不设置包含路由，并显式排除默认路由；扩展只在 Wi-Fi 接口监听 TCP 8080 端口。
 
 项目不使用任何第三方 Web 或网络框架。日志同时写入 Unified Logging 和 App Group 目录中的 `debug.log`，文件达到 512 KB 时自动轮转，主 App 内可直接查看。
 
@@ -8,6 +8,8 @@
 
 - 主 App：`app.star6979.lettuce4401`
 - Packet Tunnel Extension：`app.star6979.lettuce4401.PacketTunnel`
+- 工程/产品名：`WPhone`
+- App 显示名：`手机信息通知`
 - App Group：`group.3970029fa0cfcf6d.1`
 - Apple Team ID：`84V4S488EQ`
 
@@ -17,7 +19,7 @@
 
 ## GitHub Actions
 
-每次推送都会执行无需签名的 Simulator 编译，用于校验主 App 和 Extension。进入 GitHub 仓库的 **Actions > Build iOS app > Run workflow** 后，会使用以下 Secrets 执行真机 Ad Hoc 签名并上传 IPA：
+每次推送都会执行无需签名的 Simulator 编译，用于校验主 App 和 Extension。进入 GitHub 仓库的 **Actions > Build iOS app > Run workflow** 后，会使用以下 Secrets 执行真机 Ad Hoc 签名并上传 IPA。产物名为 `WPhone-ipa`：
 
 - `APPLE_TEAM_ID`：`84V4S488EQ`
 - `IOS_P12_BASE64`：P12 文件的 Base64 内容
@@ -28,7 +30,7 @@
 
 Linux 环境可使用 `base64 -w 0 文件名` 生成单行 Secret。不要把 ZIP、P12、密码、profile 或 Base64 内容提交到 Git。
 
-工作流会检查两个 profile 的 application identifier，并在不匹配时停止归档。最终 IPA 位于该次 workflow run 的 `EmptyTunnel-ipa` artifact 中。
+工作流会检查两个 profile 的 application identifier，并在不匹配时停止归档。最终 IPA 位于该次 workflow run 的 `WPhone-ipa` artifact 中。
 
 ## 使用
 
