@@ -36,7 +36,7 @@ http://<手机的局域网IP>:8080/
 
 ## 局域网 API
 
-正式事件协议由 WPhone 定义，规范见 [WPhone Event API v1](Docs/WPhone-API-v1.md)。生产发送端使用：
+正式事件协议由 WPhone 定义，字段和响应规范见 [WPhone Event API v1](Docs/WPhone-API-v1.md)，第三方软件的发送队列、重试和事件映射建议见 [外部软件接入指南](Docs/WPhone-Integration-Guide.md)。生产发送端使用：
 
 ```text
 POST /api/v1/events

@@ -2,6 +2,8 @@
 
 本文档是 WPhone 局域网事件接口的规范性定义。运行中的 App 通过 `GET /openapi.json` 提供机器可读版本；Tasker、Codex 和其他发送端是该协议的客户端，不应自行改变字段含义。
 
+第三方软件的发现、队列、重试、事件映射和诊断建议见 [WPhone 外部软件接入指南](WPhone-Integration-Guide.md)。
+
 ## 1. 版本规则
 
 - HTTP 端点：`POST /api/v1/events`
