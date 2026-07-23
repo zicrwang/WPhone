@@ -47,6 +47,7 @@ class RelayServerTests(unittest.IsolatedAsyncioTestCase):
     async def test_health_reports_provider_count(self):
         status, payload = await self.request("GET", "/health")
         self.assertEqual(status, 200)
+        self.assertEqual(payload["service"], "wphone-vpn-relay")
         self.assertEqual(payload["providers"], 0)
 
     async def test_event_requires_connected_provider(self):
@@ -76,7 +77,7 @@ class RelayServerTests(unittest.IsolatedAsyncioTestCase):
                 "source": event["source"],
                 "id": event["id"],
                 "eventType": event["type"],
-                "effect": "call_notification_submitted",
+                "effect": "alarmkit_schedule_requested",
                 "firstAcceptedAt": 1784800000456,
             }
             provider_writer.write(json.dumps(ack).encode("utf-8") + b"\n")

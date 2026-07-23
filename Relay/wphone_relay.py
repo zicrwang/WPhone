@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Trusted-LAN HTTP-to-WPhone Local Push relay."""
+"""Trusted-LAN HTTP-to-WPhone VPN relay."""
 
 import argparse
 import asyncio
@@ -26,7 +26,7 @@ class HTTPFailure(Exception):
 
 
 class RelayServer:
-    def __init__(self, host="0.0.0.0", http_port=8080, provider_port=8081, ack_timeout=5.0):
+    def __init__(self, host="0.0.0.0", http_port=18080, provider_port=18081, ack_timeout=5.0):
         self.host = host
         self.http_port = http_port
         self.provider_port = provider_port
@@ -206,7 +206,7 @@ class RelayServer:
         if method == "GET" and path in ("/health", "/api/status"):
             return 200, {
                 "ok": True,
-                "service": "wphone-local-push-relay",
+                "service": "wphone-vpn-relay",
                 "providers": len(self._providers),
             }
         if method != "POST" or path != "/api/v1/events":
@@ -239,7 +239,7 @@ class RelayServer:
     async def _deliver_event(self, body):
         available = [writer for writer in self._providers if not writer.is_closing()]
         if not available:
-            raise HTTPFailure(503, "provider_unavailable", "No iPhone Local Push provider is connected.")
+            raise HTTPFailure(503, "provider_unavailable", "No iPhone VPN channel is connected.")
 
         delivery_id = str(uuid.uuid4())
         frame = {
@@ -258,7 +258,7 @@ class RelayServer:
                 except ConnectionError:
                     self._providers.pop(writer, None)
             if delivered == 0:
-                raise HTTPFailure(503, "provider_unavailable", "No iPhone Local Push provider is connected.")
+                raise HTTPFailure(503, "provider_unavailable", "No iPhone VPN channel is connected.")
             try:
                 return await asyncio.wait_for(future, timeout=self.ack_timeout)
             except asyncio.TimeoutError as error:
@@ -381,8 +381,8 @@ async def run(args):
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
-    parser.add_argument("--http-port", type=int, default=8080, help="event HTTP port (default: 8080)")
-    parser.add_argument("--provider-port", type=int, default=8081, help="iPhone channel port (default: 8081)")
+    parser.add_argument("--http-port", type=int, default=18080, help="event HTTP port (default: 18080)")
+    parser.add_argument("--provider-port", type=int, default=18081, help="iPhone channel port (default: 18081)")
     parser.add_argument("--ack-timeout", type=float, default=5.0, help="iPhone acknowledgement timeout")
     return parser.parse_args()
 

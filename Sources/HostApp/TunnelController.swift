@@ -1,3 +1,4 @@
+import AlarmKit
 import Combine
 import Foundation
 import NetworkExtension
@@ -7,9 +8,16 @@ import UserNotifications
 final class TunnelController: NSObject, ObservableObject {
     static let providerBundleIdentifier = "app.wephone.vpn.PacketTunnel"
     static let appGroupIdentifier = "group.3970029fa0cfcf6d.1"
+    static let defaultRelayHost = "192.168.2.99"
+    static let defaultRelayPort: UInt16 = 18081
 
     @Published private(set) var status: NEVPNStatus = .invalid
     @Published private(set) var lastError: String?
+    @Published private(set) var alarmTestStatus = "Not tested"
+    @Published private(set) var alarmAuthorizationStatus = "unknown"
+    @Published var relayHost = Self.defaultRelayHost
+    @Published var relayPort = String(Self.defaultRelayPort)
+
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
 
@@ -44,12 +52,117 @@ final class TunnelController: NSObject, ObservableObject {
         }
     }
 
+    func requestAlarmAuthorization() async {
+        do {
+            let stateDescription: String
+            let isAuthorized: Bool
+            switch AlarmManager.shared.authorizationState {
+            case .notDetermined:
+                let requestedState = try await AlarmManager.shared.requestAuthorization()
+                stateDescription = String(describing: requestedState)
+                isAuthorized = requestedState == .authorized
+            case .denied:
+                stateDescription = "denied"
+                isAuthorized = false
+            case .authorized:
+                stateDescription = "authorized"
+                isAuthorized = true
+            @unknown default:
+                stateDescription = "unknown"
+                isAuthorized = false
+            }
+            alarmAuthorizationStatus = stateDescription
+            WPhoneAlarmStore.saveHostAuthorization(stateDescription)
+            SharedLogger.shared.info("AlarmKit authorization: \(stateDescription)")
+            if !isAuthorized {
+                lastError = "AlarmKit permission is required for system alarm alerts."
+            }
+        } catch {
+            alarmAuthorizationStatus = "error"
+            WPhoneAlarmStore.saveHostAuthorization("error")
+            lastError = error.localizedDescription
+            SharedLogger.shared.error(
+                "AlarmKit authorization failed: \(WPhoneAlarmDiagnostics.describe(error))"
+            )
+        }
+    }
+
+    func scheduleAlarmKitTest() async {
+        let manager = AlarmManager.shared
+        guard manager.authorizationState == .authorized else {
+            alarmTestStatus = "Not authorized"
+            SharedLogger.shared.error("Main app AlarmKit test skipped: authorization is not authorized")
+            await requestAlarmAuthorization()
+            return
+        }
+
+        stopAlarmKitTest(logResult: false)
+        let id = UUID()
+        let caller = "WPhone 主 App 测试"
+        let callKey = "main-app-test"
+        let configuration = WPhoneAlarmConfiguration.make(
+            id: id,
+            caller: caller,
+            callKey: callKey,
+            triggerDate: Date.now.addingTimeInterval(1)
+        )
+        alarmTestStatus = "Scheduling"
+        SharedLogger.shared.debug(
+            "Main app AlarmKit schedule attempt id=\(id.uuidString) authorization=authorized"
+        )
+
+        do {
+            _ = try await manager.schedule(id: id, configuration: configuration)
+            WPhoneAlarmStore.save(WPhoneAlarmRecord(
+                id: id,
+                callKey: callKey,
+                caller: caller,
+                scheduledAt: Date()
+            ))
+            alarmTestStatus = "Scheduled"
+            lastError = nil
+            SharedLogger.shared.info("Main app AlarmKit alarm scheduled id=\(id.uuidString)")
+        } catch {
+            let details = WPhoneAlarmDiagnostics.describe(error)
+            alarmTestStatus = "Failed"
+            lastError = error.localizedDescription
+            SharedLogger.shared.error("Main app AlarmKit schedule failed: \(details)")
+        }
+    }
+
+    func stopAlarmKitTest(logResult: Bool = true) {
+        guard let record = WPhoneAlarmStore.activeAlarm() else {
+            if logResult {
+                alarmTestStatus = "No active alarm"
+            }
+            return
+        }
+        // AlarmKit uses stop for an alerting alarm and cancel for a scheduled one.
+        // Calling both makes this control work on either side of the trigger date.
+        try? AlarmManager.shared.stop(id: record.id)
+        try? AlarmManager.shared.cancel(id: record.id)
+        WPhoneAlarmStore.clear(alarmID: record.id)
+        alarmTestStatus = "Stopped"
+        if logResult {
+            SharedLogger.shared.info("Main app AlarmKit alarm stop/cancel requested id=\(record.id.uuidString)")
+        }
+    }
+
     func load() async {
         do {
             let managers = try await loadManagers()
             manager = managers.first { current in
                 (current.protocolConfiguration as? NETunnelProviderProtocol)?
                     .providerBundleIdentifier == Self.providerBundleIdentifier
+            }
+            if let configuration = manager?.protocolConfiguration as? NETunnelProviderProtocol,
+               let values = configuration.providerConfiguration {
+                if let savedHost = values["relayHost"] as? String, !savedHost.isEmpty {
+                    relayHost = savedHost
+                }
+                if let savedPort = values["relayPort"] as? NSNumber {
+                    relayPort = String(savedPort.uint16Value)
+                }
             }
             status = manager?.connection.status ?? .invalid
             SharedLogger.shared.debug("Loaded packet tunnel status: \(status.rawValue)")
@@ -94,6 +207,14 @@ final class TunnelController: NSObject, ObservableObject {
     }
 
     private func configuredManager() async throws -> NETunnelProviderManager {
+        let normalizedHost = relayHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedHost.isEmpty, normalizedHost.count <= 255 else {
+            throw RelayConfigurationError.invalidHost
+        }
+        guard let parsedPort = UInt16(relayPort), parsedPort > 0 else {
+            throw RelayConfigurationError.invalidPort
+        }
+
         let managers = try await loadManagers()
         let manager = managers.first { current in
             guard let configuration = current.protocolConfiguration as? NETunnelProviderProtocol else {
@@ -104,16 +225,30 @@ final class TunnelController: NSObject, ObservableObject {
 
         let configuration = NETunnelProviderProtocol()
         configuration.providerBundleIdentifier = Self.providerBundleIdentifier
-        configuration.serverAddress = "Keepalive only"
+        configuration.serverAddress = "WPhone relay \(normalizedHost):\(parsedPort)"
         configuration.providerConfiguration = [
             "listenerPort": 8080,
-            "accessPolicy": "privateLANOverWiFi"
+            "accessPolicy": "privateLANOverWiFi",
+            "relayHost": normalizedHost,
+            "relayPort": NSNumber(value: parsedPort),
+            "relayDeviceID": Self.relayDeviceID()
         ]
 
         manager.protocolConfiguration = configuration
         manager.localizedDescription = "WPhone Background Keepalive"
         manager.isEnabled = true
         return manager
+    }
+
+    private static func relayDeviceID() -> String {
+        let key = "app.wephone.vpn.relay.device-id"
+        let defaults = UserDefaults(suiteName: appGroupIdentifier)
+        if let saved = defaults?.string(forKey: key), !saved.isEmpty {
+            return saved
+        }
+        let created = UUID().uuidString
+        defaults?.set(created, forKey: key)
+        return created
     }
 
     private func loadManagers() async throws -> [NETunnelProviderManager] {
@@ -149,6 +284,20 @@ final class TunnelController: NSObject, ObservableObject {
                     continuation.resume()
                 }
             }
+        }
+    }
+}
+
+private enum RelayConfigurationError: LocalizedError {
+    case invalidHost
+    case invalidPort
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidHost:
+            return "中继站地址不能为空。"
+        case .invalidPort:
+            return "中继站端口必须是 1 到 65535。"
         }
     }
 }

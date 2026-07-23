@@ -18,8 +18,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Show Xcode version
-        run: xcodebuild -version
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_PATH="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' -print | sort | tail -n 1)"
+          if [[ -z "$XCODE_PATH" ]]; then
+            echo "::error::Xcode 26 is required for AlarmKit"
+            find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print
+            exit 1
+          fi
+          sudo xcode-select --switch "$XCODE_PATH/Contents/Developer"
+          xcodebuild -version
 
       - name: Build device app without signing
         run: |
@@ -54,12 +64,10 @@ jobs:
         run: |
           set -euo pipefail
           APP_PATH="$RUNNER_TEMP/DerivedData/Build/Products/$CONFIGURATION-iphoneos/WPhone.app"
-          PACKET_EXTENSION_PATH="$APP_PATH/PlugIns/PacketTunnel.appex"
-          APP_PUSH_EXTENSION_PATH="$APP_PATH/PlugIns/AppPushProvider.appex"
+          EXTENSION_PATH="$APP_PATH/PlugIns/PacketTunnel.appex"
 
           test -d "$APP_PATH"
-          test -d "$PACKET_EXTENSION_PATH"
-          test -d "$APP_PUSH_EXTENSION_PATH"
+          test -d "$EXTENSION_PATH"
 
           PACKAGE_PATH="$RUNNER_TEMP/unsigned-ipa"
           mkdir -p "$PACKAGE_PATH/Payload"

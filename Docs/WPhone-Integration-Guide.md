@@ -6,13 +6,11 @@
 
 ## 1. 接入范围
 
-推荐的 Local Push 模式由局域网中继监听 TCP 8080，并提供 HTTP/1.1 JSON API：
+生产发送端连接 Armbian 中继站的 HTTP/1.1 JSON API：
 
 ```text
-http://<Relay-LAN-IP>:8080
+http://192.168.2.99:18080
 ```
-
-中继再通过 TCP 8081 的长连接把事件交给 iPhone。Packet Tunnel 兼容模式仍可直接使用 `http://<iPhone-LAN-IP>:8080`，但它不具备 Local Push 的系统唤起路径。
 
 正式发送端只使用：
 
@@ -22,7 +20,7 @@ Content-Type: application/json
 Content-Length: <bytes>
 ```
 
-下列接口用于发现和诊断。Local Push 中继实现 `/health` 和 `/api/status`；其余接口属于 Packet Tunnel 兼容入口：
+下列接口用于发现和诊断：
 
 | 方法和路径 | 用途 |
 | --- | --- |
@@ -34,18 +32,11 @@ Content-Length: <bytes>
 
 `/api/debug/*`、`START_RING` 和 `STOP_RING` 只用于人工调试或旧客户端兼容，不应作为新软件的正式接入方式。
 
-## 2. 服务发现
+## 2. 中继连接
 
-Local Push 模式应使用用户配置的中继地址，并以 `GET /health` 的 `providers` 字段确认 iPhone 是否连入。Packet Tunnel 兼容模式可按以下优先级确定 iPhone 地址：
+发送端将中继站 `192.168.2.99:18080` 作为稳定配置。iPhone Packet Tunnel 主动连接中继 TCP `18081`、注册设备 ID 并保持心跳；Wi-Fi 重连或 iPhone DHCP 地址变化后会自动重新拨号，不需要发送端扫描手机地址。
 
-1. 使用用户配置并已成功验证的 iPhone 局域网 IP。
-2. 通过 Bonjour/mDNS 查找 `_wphone-debug._tcp` 服务。
-3. 对候选地址调用 `GET /.well-known/wphone`，确认 `version` 为 `1` 且 `events` 为 `/api/v1/events`。
-4. 缓存最近一次成功地址；连接失败时重新发现，不要持续扫描整个局域网。
-
-中继电脑和 iPhone 的 DHCP 地址都可能改变。Local Push 发送端只需要稳定访问中继电脑，建议在路由器中为中继设置 DHCP 地址保留。
-
-发现响应中的未知字段必须忽略。客户端不应仅凭端口开放就认定目标是 WPhone。
+发送前可调用 `GET /health`。`providers: 1` 表示已有 iPhone VPN 通道；为 `0` 时事件请求返回 `503 provider_unavailable`。中继响应中的未知字段必须忽略。
 
 ## 3. v1 请求模型
 
@@ -142,7 +133,7 @@ homeassistant.home
 | 移除一条通用提醒 | `notification.dismiss` | `targetId` | 引用对应 `notification.show` 的 `id` |
 | 暂无内置语义的厂商事件 | `custom.<vendor>.<name>` | 无 | 当前只写日志，不能期待弹出通知 |
 
-`conversationId` 和 `mediaKind` 当前只是保留的结构化元数据。`callKind: video` 会设置 CallKit 的视频来电标记，其他值按音频来电展示；WPhone 不会建立媒体通道。
+`conversationId`、`mediaKind` 和 `callKind` 当前只是保留的结构化元数据。AlarmKit 不区分音频和视频来电，也不会建立媒体通道。
 
 ### 4.1 消息事件
 
@@ -205,7 +196,7 @@ homeassistant.home
 }
 ```
 
-普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`。WPhone 会把 `call.incoming` 交给主 App 的 CallKit provider：拒绝会结束合成来电；接听会立即结束它并提交无声的“打开微信”前台通知。主 App 未确认桥接命令时会回退为有声通知。它不是实际 VoIP 通话，也不传输音频；新的来电会替换上一条活动来电。
+普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`。WPhone 会为 `call.incoming` 调度 iOS 26 AlarmKit 系统提醒：“拒绝”停止提醒，“接听”启动 WPhone 后进入微信。它不是实际 VoIP 通话，也不传输音频；新的来电提醒会替换上一条活动提醒。
 
 ### 4.3 通用通知与移除
 
@@ -231,7 +222,7 @@ homeassistant.home
 
 ## 5. 幂等与发送队列
 
-WPhone 使用 `source + id` 作为幂等键，并比较完整 JSON 正文的 SHA-256。记录写入 App Group，在 Local Push 或 Packet Tunnel Extension 重启后仍然保留；保留窗口为 24 小时，容量最多 512 条。
+WPhone 使用 `source + id` 作为幂等键，并比较完整 JSON 正文的 SHA-256。记录写入 App Group，在 Packet Tunnel Extension 重启后仍然保留；保留窗口为 24 小时，容量最多 512 条。
 
 发送端必须遵守“序列化一次，原样重试”：
 
@@ -307,7 +298,7 @@ curl --fail-with-body \
   --max-time 5 \
   -H 'Content-Type: application/json' \
   --data-binary '@event.json' \
-  'http://192.168.1.100:8080/api/v1/events'
+  'http://192.168.2.99:18080/api/v1/events'
 ```
 
 不要在重试命令中重新计算 `id` 或 `occurredAt`。
@@ -323,7 +314,7 @@ import urllib.error
 import urllib.request
 import uuid
 
-base_url = "http://192.168.1.20:8080"  # Local Push 中继地址
+base_url = "http://192.168.2.99:18080"
 event = {
     "specVersion": 1,
     "id": f"desktop-{uuid.uuid4()}",
@@ -378,7 +369,7 @@ else:
 - 将微信普通通知映射为 `message.received`；只有能可靠区分开始和结束时才映射来电事件。
 - 保存来电开始事件 ID，结束事件的 `payload.targetId` 必须引用它。
 - HTTP `200` 和 `202` 都按成功处理；不要把重复响应当成错误再次生成新事件。
-- 将 WPhone IP、端口和 `source` 做成用户可修改配置，不要写死在事件规则中。
+- 将中继站地址、HTTP 端口和 `source` 做成用户可修改配置，不要写死在事件规则中。
 
 ### 8.2 桌面脚本或常驻服务
 
@@ -390,14 +381,13 @@ else:
 
 ### 8.3 Codex 或其他自动化代理
 
-Local Push 中继使用 `GET /health` 和 `GET /api/status`。连接 Packet Tunnel 兼容入口时，代理可按以下顺序读取机器信息：
+首次连接时先检查中继状态：
 
 ```text
-GET http://<iphone-ip>:8080/.well-known/wphone
-GET http://<iphone-ip>:8080/openapi.json
+GET http://192.168.2.99:18080/health
 ```
 
-代理应根据协议构造 `POST /api/v1/events`，并把中继 IP 视为环境配置。兼容模式才把 iPhone IP 作为目标；没有 IP 时可查询 `_wphone-debug._tcp` mDNS 服务，但不能仅从 WPhone 源码推断设备当前地址。
+代理按本文档构造 `POST /api/v1/events`，并把中继站地址视为环境配置。事件发送不再使用 iPhone IP；需要读取 iPhone 调试状态时，才通过 App 内日志或 TCP 8080 兼容入口诊断。
 
 代理执行重试时必须保留第一次生成的 JSON 字节。不要在每轮推理中重新组织 JSON 或更换事件 ID。
 
@@ -413,22 +403,21 @@ GET http://<iphone-ip>:8080/openapi.json
 
 出现“发送成功但手机无提示”时，按顺序检查：
 
-1. 主 App 的 Local Push 状态是否为 `Active`；兼容模式才检查 VPN。
-2. 中继 `GET /health` 是否返回 `ok: true` 且 `providers` 至少为 `1`。
-3. 兼容模式检查 `GET /api/status` 中 `listener.state` 是否为 `ready`。
-4. 普通消息和接听交接检查 `notifications.authorization` 是否为 `authorized` 或 `provisional`；CallKit 本身没有单独的用户授权状态。
-5. 检查 `notifications.providerLocation` 是否为 `main-app`，`providerReady` 和 `bridgeReachable` 是否为 `true`；`hostProcessState: suspended-or-stale` 表示本地桥不能保证唤醒主 App。
-6. `events.acceptedCount`、`lastEventId` 和 `lastEventEffect` 是否更新。
-7. 来电后检查 `notifications.activeCallCount`；响铃时应为 `1`，接听或结束后应回到 `0`。若为 `0` 且收到普通有声通知，说明执行了主 App 不可达回退。
-8. 使用 `/api/logs?cursor=0` 查看 `queued for main-app CallKit`、`main-app CallKit call reported`、`Main app CallKit answered and ended`，或包含 domain/code 的报告错误。
-9. 检查 iOS 通知设置、铃声音量和专注模式。
+1. 主 App 中 VPN 是否已连接。
+2. 中继站 `GET /health` 是否返回 `ok: true` 且 `providers` 为 `1`。
+3. WPhone 日志是否出现 `VPN relay registered`；直连调试页时确认 `relay.state` 为 `connected`。
+4. 普通消息检查 `notifications.authorization` 是否为 `authorized` 或 `provisional`；来电先检查 `alarmKit.hostAuthorization` 是否为 `authorized`。`alarmKit.extensionAuthorization` 可能与主 App 不同，不能单独用它判断最终调度结果。
+5. `events.acceptedCount`、`lastEventId` 和 `lastEventEffect` 是否更新。
+6. 来电后检查 `alarmKit.active`、`activeAlarmId` 和 `activeCallKey`。
+7. 使用 `/api/logs?cursor=0` 查看 `AlarmKit alarm scheduled`，或包含 NSError domain/code 的 AlarmKit 提交错误。
+8. 检查 iOS 闹钟权限、通知设置和声音设置。
 
-HTTP `202` 只表示 WPhone 接受并提交了本地处理请求。iOS 最终是否展示 CallKit/通知、播放铃声或以前台动作呈现仍由系统决定。
+HTTP `202` 只表示 WPhone 接受并提交了本地处理请求。iOS 最终是否展示 AlarmKit/通知、播放声音或以 time-sensitive 方式呈现仍由系统决定。
 
 ## 10. 安全边界
 
-- 当前 v1 和 Local Push 中继没有 TLS、访问令牌或请求签名，只能用于可信 Wi-Fi 私网。
-- 不要使用路由器端口映射、反向代理或公网隧道暴露中继的 8080/8081 端口。
+- 当前 v1 没有 TLS、访问令牌或请求签名，只能用于可信 Wi-Fi 私网。
+- 不要使用路由器端口映射、反向代理或公网隧道暴露 `18080`、`18081` 或 iPhone 调试端口 `8080`。
 - `source` 不能证明发送者身份。
 - `/api/logs` 可能暴露运行信息，不应向不可信设备开放。
 - 多租户、访客 Wi-Fi 或不可信局域网环境应停止使用，等待未来带鉴权的协议版本。
@@ -446,8 +435,8 @@ HTTP `202` 只表示 WPhone 接受并提交了本地处理请求。iOS 最终是
 - 相同 `source + id` 的不同正文得到 HTTP `409` 并停止重试。
 - `call.ended` 和 `notification.dismiss` 使用正确的 `targetId` 与相同 `source`。
 - 未知响应字段会被忽略，错误逻辑只依赖状态码和 `error.code`。
-- 中继换 IP、SSID 变化、Local Push 未激活、VPN 兼容入口停止、通知权限关闭和 WPhone 重启时有明确诊断信息。
-- 来电提醒设备运行 iOS 15.0 或更高版本；接听后打开微信还要求主 App 通知权限已开启。
+- iPhone 更换 IP、VPN 停止、通知权限关闭和 WPhone 重启时有明确诊断信息；IP 变化后中继通道能自动恢复。
+- 来电提醒设备运行 iOS 26.0 或更高版本，并已在主 App 中允许 AlarmKit 权限。
 - 不依赖真实媒体通话、无人值守打开其他 App、Critical Alert 或永久后台运行等 v1 未承诺能力。
 
 完成以上项目后，其他软件即可在不依赖 WPhone 内部实现的情况下稳定接入 `/api/v1/events`。

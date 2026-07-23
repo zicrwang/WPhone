@@ -165,7 +165,7 @@ enum WPhoneEventContract {
         case "message.received", "notification.show":
             return "notification_submitted"
         case "call.incoming":
-            return "call_notification_submitted"
+            return "alarmkit_schedule_requested"
         case "call.ended", "notification.dismiss":
             return "notification_removed"
         default:
@@ -413,7 +413,7 @@ enum WPhoneEventContract {
       "openapi": "3.0.3",
       "info": {
         "title": "WPhone LAN API",
-        "version": "1.3.0",
+        "version": "1.2.0",
         "description": "Versioned event delivery and private-LAN debug API for WPhone. This API has no authentication or TLS and must remain on a trusted private network."
       },
       "servers": [{ "url": "/" }],
@@ -501,8 +501,8 @@ enum WPhoneEventContract {
         },
         "/api/debug/call": {
           "post": {
-            "operationId": "reportDebugCallKitCall",
-            "description": "Queues an incoming call for the main-app CallKit provider through the App Group bridge. If the host app does not acknowledge it, WPhone falls back to a sound notification. Answer immediately ends the synthetic call and posts a silent foreground-action notification that launches WPhone and then opens WeChat.",
+            "operationId": "scheduleDebugAlarmKitAlert",
+            "description": "Schedules an iOS 26 AlarmKit alert. The Close button stops it; the Open button launches WPhone and then opens WeChat.",
             "parameters": [{
               "name": "caller",
               "in": "query",
@@ -770,14 +770,6 @@ final class WPhoneEventIdempotencyStore {
         }
         persist()
         return .accepted(record)
-    }
-
-    func discard(key: String, requestDigest: String) {
-        let previousCount = records.count
-        records.removeAll { $0.key == key && $0.requestDigest == requestDigest }
-        if records.count != previousCount {
-            persist()
-        }
     }
 
     private func load() {

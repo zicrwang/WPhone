@@ -1,41 +1,41 @@
 # WPhone
 
-这是一个可由 GitHub Actions 编译的 SwiftUI iOS App，安装后的名称为“手机信息通知”。项目现在以 Local Push Connectivity 为主要局域网后台通道，并保留 Packet Tunnel Provider 作为兼容和调试入口。Local Push Extension 与同网段中继保持 TCP 长连接，不依赖 APNs；中继继续向外提供 WPhone Event API v1。
+这是一个可由 GitHub Actions 编译的 SwiftUI iOS App，安装后的名称为“手机信息通知”，包含一个 Packet Tunnel Provider Extension。VPN 只作为后台运行载体：启动后不读取 `packetFlow`，不设置包含路由，并显式排除默认路由，不承担代理、转发或流量处理。扩展在 Wi-Fi 接口保留 TCP 8080 调试监听，同时主动连接中继站，默认地址为 `192.168.2.99:18081`。
 
 项目不使用任何第三方 Web 或网络框架。日志同时写入 Unified Logging 和 App Group 目录中的 `debug.log`，文件达到 512 KB 时自动轮转，主 App 内可直接查看。
 
-来电提醒使用主 App 中的 CallKit，项目最低支持 iOS 15.0。Local Push Extension 收到 `call.incoming` 后调用系统的 `reportIncomingCall(userInfo:)`，iOS 唤起主 App 的 `NEAppPushDelegate`，再由主 App 报告 CallKit。它不使用 AlarmKit、PushKit、APNs 或 Critical Alert entitlement。
+来电提醒使用 iOS 26 的 AlarmKit，因此项目最低支持 iOS 26.0，并要求 GitHub Actions 使用 Xcode 26。首次运行必须允许系统“闹钟”权限；不需要 APNs、远程推送或 Critical Alert entitlement。
 
 ## 当前标识
 
 - 主 App：`app.wephone.vpn`
 - Packet Tunnel Extension：`app.wephone.vpn.PacketTunnel`
-- Local Push Extension：`app.wephone.vpn.AppPushProvider`
 - 工程/产品名：`WPhone`
 - App 显示名：`手机信息通知`
 - App Group：`group.3970029fa0cfcf6d.1`
 
 ## 固定构建方式
 
-只有手动运行 GitHub Actions 工作流时，才会执行无需签名的真机 Release 编译，确认主 App 已嵌入 `PacketTunnel.appex` 和 `AppPushProvider.appex`，并上传 `WPhone-unsigned-ipa` artifact。普通代码推送和 Pull Request 不构建 IPA。下载其中的 `WPhone-unsigned.ipa` 后，可以交给支持 App Extension 和相应 entitlement 的手机端签名工具处理；这条流程不需要 GitHub Secrets。
+只有手动运行 GitHub Actions 工作流时，才会执行无需签名的真机 Release 编译，确认主 App 已嵌入 `PacketTunnel.appex`，并上传 `WPhone-unsigned-ipa` artifact。普通代码推送和 Pull Request 不构建 IPA。下载其中的 `WPhone-unsigned.ipa` 后，可以交给支持 App Extension 和相应 entitlement 的手机端签名工具处理；这条流程不需要 GitHub Secrets。
 
-这是本项目的固定云端构建方式：GitHub Actions 不导入 P12、不安装 provisioning profile、不读取 Apple 签名 Secrets，也不执行 Ad Hoc 签名。两个 Extension 都位于 `Payload/WPhone.app/PlugIns/`。
+这是本项目的固定云端构建方式：GitHub Actions 不导入 P12、不安装 provisioning profile、不读取 Apple 签名 Secrets，也不执行 Ad Hoc 签名。`WPhone-unsigned.ipa` 内保持标准嵌套结构：`Payload/WPhone.app/PlugIns/PacketTunnel.appex`。
 
-未签名 IPA 不会绕过 iOS 的签名校验。安装前仍需确保主 App、`PacketTunnel.appex` 和 `AppPushProvider.appex` 都被正确签名。Local Push 还要求主 App 和 App Push Extension 的 provisioning profile 实际包含 `app-push-provider` entitlement；仅修改 entitlements 文件不能绕过这一要求。
+未签名 IPA 不会绕过 iOS 的签名校验。安装前仍需由手机端工具完成签名，并确保主 App 和嵌入的 `PacketTunnel.appex` 都被正确处理。通知授权和 VPN 连接流程此前已在实际设备上验证；更换为当前固定 Bundle ID 后，需要在下次手动构建并签名时重新确认。
 
 仅在明确需要新 IPA 时，进入 GitHub 仓库的 **Actions > Build iOS app > Run workflow** 手动构建。最终下载 `WPhone-unsigned-ipa` artifact 即可。
 
 ## 使用
 
-先在局域网内一台长期在线的电脑运行中继：
+主 App 首次启动时会申请通知、AlarmKit、本地网络和 VPN 配置权限。在“中继站”中填写 Armbian 地址和通道端口，然后点击“启动”。主 App 的“测试闹铃”会直接调度一条约 1 秒后的测试提醒，“停止”会停止并取消当前提醒。调试后台只接受经 Wi-Fi 到达的私网来源：`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、IPv4 链路本地、IPv6 ULA/链路本地和回环地址。
+
+中继服务默认监听 HTTP `18080` 和 iPhone 长连接 `18081`：
 
 ```bash
-python3 Relay/wphone_relay.py --http-port 8080 --provider-port 8081
+python3 Relay/wphone_relay.py
+curl http://192.168.2.99:18080/health
 ```
 
-主 App 的 **Local Push** 区域填写 iPhone 当前连接的精确 Wi-Fi SSID、中继电脑的局域网 IP 和端口 `8081`，然后点击 **Enable**。`GET http://<中继IP>:8080/health` 返回 `providers: 1` 表示 iPhone 扩展已经连入。完整配置和验收步骤见 [Local Push 部署说明](Docs/WPhone-Local-Push.md)。
-
-兼容模式仍可点击 **Start** 启动 Packet Tunnel，点击 **Stop** 停止。它只接受经 Wi-Fi 到达的私网来源，不承担 VPN 流量转发。
+健康响应中的 `providers` 为 `1` 时，表示 Packet Tunnel 已连接中继。iPhone 通过出站长连接注册，iPhone 的 DHCP 地址发生变化后会自动重连，发送端不需要知道新的 iPhone IP。
 
 VPN 连接成功后，在同一局域网的电脑访问：
 
@@ -43,20 +43,20 @@ VPN 连接成功后，在同一局域网的电脑访问：
 http://<手机的局域网IP>:8080/
 ```
 
-网页包含实时隧道、监听、通知、CallKit 活动来电与铃声状态、信息弹出调试、CallKit 来电调试和增量 `debug.log` 输出。日志按游标读取，每次最多 64 KB，不会在每次刷新时加载完整日志。服务还通过 Bonjour 发布 `_wphone-debug._tcp`。
+网页包含实时隧道、监听、通知、主 App/Packet Tunnel 两份 AlarmKit 权限与活动状态、信息弹出调试、AlarmKit 来电调试和增量 `debug.log` 输出。日志按游标读取，每次最多 64 KB，不会在每次刷新时加载完整日志。服务还通过 Bonjour 发布 `_wphone-debug._tcp`。
 
 ## 局域网 API
 
-正式事件协议由 WPhone 定义，字段和响应规范见 [WPhone Event API v1](Docs/WPhone-API-v1.md)，第三方软件的发送队列、重试和事件映射建议见 [外部软件接入指南](Docs/WPhone-Integration-Guide.md)，来电交互、铃声和真机验收见 [WPhone CallKit 说明](Docs/WPhone-CallKit.md)。Local Push 模式下，生产发送端向中继电脑使用：
+正式事件协议由 WPhone 定义，字段和响应规范见 [WPhone Event API v1](Docs/WPhone-API-v1.md)，第三方软件的发送队列、重试和事件映射建议见 [外部软件接入指南](Docs/WPhone-Integration-Guide.md)，AlarmKit 权限、按钮、状态和真机验收见 [WPhone AlarmKit 说明](Docs/WPhone-AlarmKit.md)。生产发送端向中继站使用：
 
 ```text
-POST /api/v1/events
+POST http://192.168.2.99:18080/api/v1/events
 Content-Type: application/json
 ```
 
 该接口包含版本化事件信封、类型校验、跨扩展重启的 App Group 幂等记录和统一错误响应。`/api/debug/*` 继续只用于人工调试，不作为 Tasker 的正式通知入口。
 
-供 Codex、脚本或其他同网段工具使用的机器可读入口：
+Packet Tunnel 的 TCP 8080 入口继续保留作诊断和兼容，机器可读入口包括：
 
 ```text
 GET  /.well-known/wphone
@@ -68,7 +68,7 @@ POST /api/debug/call?caller=<来电名称>
 POST /api/debug/stop
 ```
 
-下面的发现和调试接口由 Packet Tunnel 兼容入口提供；Local Push 中继只提供 `/health`、`/api/status` 和 `/api/v1/events`：
+如需直接调试 iPhone，可读取下面的发现接口：
 
 ```bash
 curl http://<手机的局域网IP>:8080/.well-known/wphone
@@ -77,15 +77,13 @@ curl http://<手机的局域网IP>:8080/openapi.json
 
 旧的 `/.well-known/wphone-debug` 发现地址继续保留兼容。
 
-接口没有账号或令牌认证，同一私网内的其他设备也能触发通知；中继和 Packet Tunnel 兼容入口都只应在可信局域网使用。Codex 无法仅凭项目代码自动知道中继或手机当前 IP，需要显式提供目标地址；兼容入口也可通过 `_wphone-debug._tcp` 的 mDNS/Bonjour 记录发现。
+中继和 iPhone 调试接口都没有账号或令牌认证，只应部署在可信局域网。正式发送端固定调用中继站，不再依赖 iPhone 当前 IP；只有访问 iPhone 调试网页时才需要 IP 或 `_wphone-debug._tcp` Bonjour 发现。
 
-Local Push 的“CallKit 来电”通过系统 `NEAppPushProvider -> NEAppPushDelegate` 唤醒链路交给主 App 的 `CXProvider`，不会建立真实语音通道。拒绝会立即取消来电；接听会立即结束这个合成来电，并提交一条无声、time-sensitive、带 `.foreground` 操作的“打开微信”通知。点击通知正文或“打开微信”后，系统先将 WPhone 置于前台，WPhone 在激活后自动尝试 `weixin://`；自动跳转失败时显示全屏“打开微信”按钮。
+“AlarmKit 来电”会在收到事件后约 1 秒触发 iOS 26 系统闹铃。锁屏时由系统显示锁屏闹铃界面并响铃；设备正在使用时由系统在屏幕上方呈现并响铃。点“拒绝”会停止并取消提醒；点“接听”会停止提醒、唤醒 WPhone，再由主 App 打开 `weixin://`。具体尺寸、位置和持续时间最终由 iOS 控制。
 
-VPN 只提供 Packet Tunnel 兼容入口的后台生命周期，不参与路由、代理或 CallKit。停止 VPN 会结束 iPhone 上的兼容 HTTP 监听器，但不会停止已经激活的 Local Push 通道，也不会主动结束主 App 已经报告的 CallKit 来电或通知。
+VPN 只提供 Packet Tunnel Extension 的后台生命周期，不参与路由、代理或通知展示。停止 VPN 不再取消已经调度给系统的 AlarmKit 提醒；主 App 在前台时也仍可直接调度提醒。但局域网 HTTP 监听器运行在 Packet Tunnel 进程中，VPN 停止后 iOS 会终止该进程，因此在重新连接 VPN 前无法接收新的局域网事件。这是后台入口的生命周期限制，不是通知权限依赖 VPN。
 
-`CXProvider` 和接听回调现在都位于主 App，但 iOS 仍不允许接听动作无用户确认地启动另一个 App。“打开微信”由 `.foreground` 通知动作完成，系统会短暂经过 WPhone；通知正文的默认点击执行相同路由。
-
-CallKit 支持自定义铃声。主 App 会在自身 bundle 中查找 `WPhoneRingtone.caf`：把该文件加入 Xcode 工程并只勾选 **WPhone** Target Membership 后，`CXProviderConfiguration.ringtoneSound` 会自动启用它；文件缺失时使用系统 CallKit 铃声。`GET /api/status` 的 `notifications.customRingtone` 会显示实际启用的文件名或 `null`。
+VPN Extension 不能调用 `UIApplication`，所以“接听”由 AlarmKit 的 `LiveActivityIntent` 唤醒主 App，主 App 再打开微信。系统会短暂经过 WPhone；公开 API 不支持由后台扩展在完全无用户操作的情况下直接启动微信。
 
 ## 兼容指令
 
@@ -104,12 +102,10 @@ Host: iphone.local:8080
 
 ```
 
-`START_RING` 报告一条 CallKit 来电，`STOP_RING` 结束当前调试来电并移除对应的待处理和已送达通知。
+`START_RING` 调度一条 AlarmKit 系统提醒，`STOP_RING` 停止当前 AlarmKit 提醒并移除对应的待处理和已送达通知。
 
 ## 平台限制
 
-`NEAppPushProvider` 由 iOS 根据 `matchSSIDs` 激活；SSID 不匹配、网络切换、entitlement 或 provisioning profile 不正确时不会保持通道。中继必须位于 iPhone 可访问的同一可信局域网。运行时事件链路不经过 APNs 或本项目之外的云服务。
+`NEPacketTunnelProvider` 不是永久后台运行保证。即使使用 Ad Hoc 或企业签名，iOS 仍可因系统策略、资源压力、网络切换或配置变化停止扩展。空包含路由和排除默认路由可避免主动接管普通流量，但不能承诺所有未来 iOS 版本行为完全相同。
 
-兼容入口的 `NEPacketTunnelProvider` 也不是永久后台运行保证。即使使用 Ad Hoc 或企业签名，iOS 仍可因系统策略、资源压力、网络切换或配置变化停止扩展。
-
-WPhone 当前一次只保留一条活动 CallKit 来电，新来电会以“未接听”结束上一条。铃声、接听/拒绝界面和最终呈现由 iOS 控制。Local Push 来电通过系统的 `reportIncomingCall` 唤起链路交付；Packet Tunnel 兼容入口在主 App 无法接收 Darwin 通知时仍会回退为有声通知。接听后的交接通知刻意不播放声音，避免系统来电结束后重复响铃。CallKit 应用于合成提醒不等于真实 VoIP 通话，WPhone 不传输或接管任何音频。
+普通本地通知只能播放一次系统声音，删除已送达通知不能中断已经开始的声音。AlarmKit 的提醒样式、声音、持续时间和最终呈现由 iOS 控制；它不是永久响铃保证，也不应被当作 Critical Alert。WPhone 当前一次只保留一条活动 AlarmKit 来电，新来电会替换上一条。Apple 公开资料只明确主 App 调度 AlarmKit，没有保证 Packet Tunnel Extension 调度；WPhone 仍会在目标 iOS 26.x 真机上直接尝试，并记录完整系统错误。失败时自动退回带“打开”操作的 time-sensitive 本地通知。
