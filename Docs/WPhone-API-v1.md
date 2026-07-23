@@ -164,7 +164,7 @@ Content-Type: application/json
 - `notification_removed`
 - `logged_only`
 
-`202` 表示 WPhone 已校验、记录并向 App Group 处理流程提交事件，不表示主 App 已成功报告来电。主 App 生命周期、CallKit 报告失败或系统策略仍可能阻止 CallKit 展示；未确认的来电命令会回退为通知。接听后的微信交接还依赖本地通知权限。异步状态和错误写入 `debug.log` 和 `/api/status`。
+`202` 表示 WPhone 已校验、记录并提交事件。Local Push 路径的响应在 App Push Extension 确认处理后返回，但仍不表示 iOS 最终展示了 CallKit 或通知；Packet Tunnel 兼容路径的未确认来电命令会回退为通知。接听后的微信交接还依赖本地通知权限。异步状态和错误写入 `debug.log`。
 
 ## 6. 错误响应
 

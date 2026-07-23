@@ -1,8 +1,8 @@
 import Foundation
 import os
 
-/// A small logger shared by the app and the packet-tunnel extension.
-/// Both targets must have the same App Group entitlement.
+/// A small logger shared by the app and its Network Extension targets.
+/// All targets must have the same App Group entitlement.
 public final class SharedLogger {
     public static let shared = SharedLogger()
     public static let appGroupIdentifier = "group.3970029fa0cfcf6d.1"

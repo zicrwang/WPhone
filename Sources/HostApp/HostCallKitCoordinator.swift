@@ -97,6 +97,26 @@ final class HostCallKitCoordinator: NSObject, CXProviderDelegate {
         }
     }
 
+    func receiveLocalPushIncomingCall(
+        key: String,
+        caller: String,
+        hasVideo: Bool,
+        notificationIdentifier: String
+    ) {
+        let command = CallKitBridgeCommand.incoming(
+            key: key,
+            caller: caller,
+            hasVideo: hasVideo,
+            action: "LOCAL_PUSH_CALLKIT_INCOMING",
+            notificationIdentifier: notificationIdentifier
+        )
+        callQueue.async { [weak self] in
+            guard let self else { return }
+            self.log.info("Local Push incoming call handed to main-app CallKit key=\(key)")
+            self.process(command)
+        }
+    }
+
     func providerDidBegin(_ provider: CXProvider) {
         guard self.provider === provider else { return }
         state.providerReady = true

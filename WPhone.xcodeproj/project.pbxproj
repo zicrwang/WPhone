@@ -19,6 +19,13 @@
 		A1000000000000000000000A /* HostCallKitCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* HostCallKitCoordinator.swift */; };
 		A1000000000000000000000B /* CallKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* CallKitBridge.swift */; };
 		A1000000000000000000000C /* CallKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* CallKitBridge.swift */; };
+		B10000000000000000000001 /* LocalPushProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* LocalPushProvider.swift */; };
+		B10000000000000000000002 /* SharedLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* SharedLogger.swift */; };
+		B10000000000000000000003 /* NotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* NotificationRouting.swift */; };
+		B10000000000000000000004 /* CallKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* CallKitBridge.swift */; };
+		B10000000000000000000005 /* WPhoneEventAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* WPhoneEventAPI.swift */; };
+		B10000000000000000000006 /* LocalPushController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* LocalPushController.swift */; };
+		B10000000000000000000007 /* AppPushProvider.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B20000000000000000000005 /* AppPushProvider.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -28,6 +35,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = A50000000000000000000002;
 			remoteInfo = PacketTunnel;
+		};
+		B60000000000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A70000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B50000000000000000000001;
+			remoteInfo = AppPushProvider;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -39,6 +53,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				A10000000000000000000006 /* PacketTunnel.appex in Embed App Extensions */,
+				B10000000000000000000007 /* AppPushProvider.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -60,6 +75,11 @@
 		A20000000000000000000012 /* NotificationRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRouting.swift; sourceTree = "<group>"; };
 		A20000000000000000000013 /* HostCallKitCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostCallKitCoordinator.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* CallKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallKitBridge.swift; sourceTree = "<group>"; };
+		B20000000000000000000001 /* LocalPushProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPushProvider.swift; sourceTree = "<group>"; };
+		B20000000000000000000002 /* LocalPushController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPushController.swift; sourceTree = "<group>"; };
+		B20000000000000000000003 /* AppPushProvider-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "AppPushProvider-Info.plist"; sourceTree = "<group>"; };
+		B20000000000000000000004 /* AppPushProvider.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AppPushProvider.entitlements; sourceTree = "<group>"; };
+		B20000000000000000000005 /* AppPushProvider.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = AppPushProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -71,6 +91,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A40000000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B40000000000000000000002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -95,6 +122,7 @@
 			children = (
 				A30000000000000000000003 /* HostApp */,
 				A30000000000000000000004 /* PacketTunnel */,
+				B30000000000000000000001 /* AppPush */,
 				A30000000000000000000005 /* Shared */,
 			);
 			path = Sources;
@@ -106,8 +134,17 @@
 				A20000000000000000000001 /* WPhoneApp.swift */,
 				A20000000000000000000002 /* TunnelController.swift */,
 				A20000000000000000000013 /* HostCallKitCoordinator.swift */,
+				B20000000000000000000002 /* LocalPushController.swift */,
 			);
 			path = HostApp;
+			sourceTree = "<group>";
+		};
+		B30000000000000000000001 /* AppPush */ = {
+			isa = PBXGroup;
+			children = (
+				B20000000000000000000001 /* LocalPushProvider.swift */,
+			);
+			path = AppPush;
 			sourceTree = "<group>";
 		};
 		A30000000000000000000004 /* PacketTunnel */ = {
@@ -134,6 +171,7 @@
 			children = (
 				A20000000000000000000005 /* Main-Info.plist */,
 				A20000000000000000000006 /* PacketTunnel-Info.plist */,
+				B20000000000000000000003 /* AppPushProvider-Info.plist */,
 			);
 			path = InfoPlist;
 			sourceTree = "<group>";
@@ -143,6 +181,7 @@
 			children = (
 				A20000000000000000000007 /* Main.entitlements */,
 				A20000000000000000000009 /* PacketTunnel.entitlements */,
+				B20000000000000000000004 /* AppPushProvider.entitlements */,
 			);
 			path = Entitlements;
 			sourceTree = "<group>";
@@ -152,6 +191,7 @@
 			children = (
 				A20000000000000000000010 /* WPhone.app */,
 				A20000000000000000000008 /* PacketTunnel.appex */,
+				B20000000000000000000005 /* AppPushProvider.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -171,6 +211,7 @@
 			);
 			dependencies = (
 				A60000000000000000000001 /* PBXTargetDependency */,
+				B60000000000000000000001 /* PBXTargetDependency */,
 			);
 			name = WPhone;
 			productName = WPhone;
@@ -193,6 +234,22 @@
 			productReference = A20000000000000000000008 /* PacketTunnel.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		B50000000000000000000001 /* AppPushProvider */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B80000000000000000000001 /* Build configuration list for PBXNativeTarget "AppPushProvider" */;
+			buildPhases = (
+				B40000000000000000000001 /* Sources */,
+				B40000000000000000000002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AppPushProvider;
+			productName = AppPushProvider;
+			productReference = B20000000000000000000005 /* AppPushProvider.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -207,6 +264,9 @@
 						CreatedOnToolsVersion = 15.0;
 					};
 					A50000000000000000000002 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+					B50000000000000000000001 = {
 						CreatedOnToolsVersion = 15.0;
 					};
 				};
@@ -226,6 +286,7 @@
 			targets = (
 				A50000000000000000000001 /* WPhone */,
 				A50000000000000000000002 /* PacketTunnel */,
+				B50000000000000000000001 /* AppPushProvider */,
 			);
 		};
 /* End PBXProject section */
@@ -241,6 +302,7 @@
 				A10000000000000000000008 /* NotificationRouting.swift in Sources */,
 				A1000000000000000000000A /* HostCallKitCoordinator.swift in Sources */,
 				A1000000000000000000000B /* CallKitBridge.swift in Sources */,
+				B10000000000000000000006 /* LocalPushController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -256,6 +318,18 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B40000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000001 /* LocalPushProvider.swift in Sources */,
+				B10000000000000000000002 /* SharedLogger.swift in Sources */,
+				B10000000000000000000003 /* NotificationRouting.swift in Sources */,
+				B10000000000000000000004 /* CallKitBridge.swift in Sources */,
+				B10000000000000000000005 /* WPhoneEventAPI.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -263,6 +337,11 @@
 			isa = PBXTargetDependency;
 			target = A50000000000000000000002 /* PacketTunnel */;
 			targetProxy = A60000000000000000000002 /* PBXContainerItemProxy */;
+		};
+		B60000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B50000000000000000000001 /* AppPushProvider */;
+			targetProxy = B60000000000000000000002 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -401,6 +480,48 @@
 			};
 			name = Release;
 		};
+		B90000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Entitlements/AppPushProvider.entitlements;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = InfoPlist/AppPushProvider-Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.wephone.vpn.AppPushProvider;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(APP_PUSH_PROVISIONING_PROFILE_SPECIFIER)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B90000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Entitlements/AppPushProvider.entitlements;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = InfoPlist/AppPushProvider-Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.wephone.vpn.AppPushProvider;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(APP_PUSH_PROVISIONING_PROFILE_SPECIFIER)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -427,6 +548,15 @@
 			buildConfigurations = (
 				A90000000000000000000005 /* Debug */,
 				A90000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B80000000000000000000001 /* Build configuration list for PBXNativeTarget "AppPushProvider" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B90000000000000000000001 /* Debug */,
+				B90000000000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

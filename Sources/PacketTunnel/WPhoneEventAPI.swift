@@ -772,6 +772,14 @@ final class WPhoneEventIdempotencyStore {
         return .accepted(record)
     }
 
+    func discard(key: String, requestDigest: String) {
+        let previousCount = records.count
+        records.removeAll { $0.key == key && $0.requestDigest == requestDigest }
+        if records.count != previousCount {
+            persist()
+        }
+    }
+
     private func load() {
         guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return }
         do {

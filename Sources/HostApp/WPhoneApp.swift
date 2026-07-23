@@ -28,10 +28,12 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        HostCallKitCoordinator.shared.start()
+        LocalPushController.shared.initialize()
+
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         NotificationRouting.registerCategories(on: center)
-        HostCallKitCoordinator.shared.start()
         SharedLogger.shared.debug("Notification actions registered")
         return true
     }
@@ -164,41 +166,104 @@ final class WeChatLaunchCoordinator: ObservableObject {
 
 private struct ContentView: View {
     @StateObject private var tunnel = TunnelController()
+    @StateObject private var localPush = LocalPushController.shared
     @State private var logText = ""
     @State private var showingLog = false
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Tunnel: \(tunnel.statusText)")
-                .font(.headline)
+        NavigationView {
+            Form {
+                Section("Local Push") {
+                    HStack {
+                        Text("Status")
+                        Spacer()
+                        Label(
+                            localPush.statusText,
+                            systemImage: localPush.isActive
+                                ? "checkmark.circle.fill"
+                                : "clock.fill"
+                        )
+                        .foregroundStyle(localPush.isActive ? Color.green : Color.secondary)
+                    }
 
-            HStack(spacing: 12) {
-                Button("Start") {
-                    Task { await tunnel.start() }
+                    TextField("Wi-Fi SSID", text: $localPush.ssid)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Relay host or IP", text: $localPush.host)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    TextField("Relay port", text: $localPush.portText)
+                        .keyboardType(.numberPad)
+
+                    HStack(spacing: 12) {
+                        Button {
+                            localPush.saveAndEnable()
+                        } label: {
+                            Label("Enable", systemImage: "antenna.radiowaves.left.and.right")
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button(role: .destructive) {
+                            localPush.disable()
+                        } label: {
+                            Label("Disable", systemImage: "stop.circle")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!localPush.isEnabled)
+                    }
+
+                    if let lastError = localPush.lastError {
+                        Text(lastError)
+                            .foregroundStyle(.red)
+                            .font(.footnote)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(tunnel.status == .connected || tunnel.status == .connecting)
 
-                Button("Stop") {
-                    tunnel.stop()
+                Section("Packet Tunnel compatibility") {
+                    HStack {
+                        Text("Status")
+                        Spacer()
+                        Text(tunnel.statusText)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button {
+                            Task { await tunnel.start() }
+                        } label: {
+                            Label("Start", systemImage: "play.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(tunnel.status == .connected || tunnel.status == .connecting)
+
+                        Button {
+                            tunnel.stop()
+                        } label: {
+                            Label("Stop", systemImage: "stop.fill")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(tunnel.status == .disconnected || tunnel.status == .invalid)
+                    }
+
+                    if let lastError = tunnel.lastError {
+                        Text(lastError)
+                            .foregroundStyle(.red)
+                            .font(.footnote)
+                    }
                 }
-                .buttonStyle(.bordered)
-                .disabled(tunnel.status == .disconnected || tunnel.status == .invalid)
-            }
 
-            if let lastError = tunnel.lastError {
-                Text(lastError)
-                    .foregroundStyle(.red)
-                    .font(.footnote)
+                Section {
+                    Button {
+                        logText = SharedLogger.shared.recentLog()
+                        showingLog = true
+                    } label: {
+                        Label("View log", systemImage: "doc.text.magnifyingglass")
+                    }
+                }
             }
-
-            Button("View log") {
-                logText = SharedLogger.shared.recentLog()
-                showingLog = true
-            }
-            .buttonStyle(.bordered)
+            .navigationTitle("手机信息通知")
         }
-        .padding()
         .task {
             await tunnel.load()
             await tunnel.requestNotificationAuthorization()

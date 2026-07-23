@@ -8,3 +8,5 @@
 DerivedData/
 build/
 xcuserdata/
+__pycache__/
+*.py[cod]
