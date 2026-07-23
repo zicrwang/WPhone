@@ -21,11 +21,12 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Compile without signing
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          set +e
           xcodebuild \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
@@ -34,7 +35,20 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             build \
             CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_REQUIRED=NO 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
+          build_status=${PIPESTATUS[0]}
+          if [[ "$build_status" -ne 0 ]]; then
+            awk '
+              /error:|BUILD FAILED/ {
+                message = $0
+                gsub(/%/, "%25", message)
+                gsub(/\r/, "%0D", message)
+                gsub(/\n/, "%0A", message)
+                print "::error::" message
+              }
+            ' "$RUNNER_TEMP/xcodebuild.log"
+          fi
+          exit "$build_status"
 
   archive:
     needs: compile
@@ -50,7 +64,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Validate signing inputs
         shell: bash
