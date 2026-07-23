@@ -24,8 +24,8 @@ final class WPhoneRelayChannel {
     private var isRunning = false
     private var isReady = false
     private var hasStartedReceiveLoop = false
-    private var host = Self.defaultHost
-    private var port = Network.NWEndpoint.Port(rawValue: Self.defaultPort)!
+    private var host = WPhoneRelayChannel.defaultHost
+    private var port = Network.NWEndpoint.Port(rawValue: WPhoneRelayChannel.defaultPort)!
     private var deviceID = ""
 
     init(
