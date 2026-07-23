@@ -97,7 +97,7 @@ final class TunnelController: NSObject, ObservableObject {
             id: id,
             caller: caller,
             callKey: callKey,
-            triggerDate: Date.now.addingTimeInterval(3)
+            triggerDate: Date.now.addingTimeInterval(1)
         )
         alarmTestStatus = "Scheduling"
         SharedLogger.shared.debug(

@@ -26,7 +26,7 @@
 
 ## 使用
 
-主 App 首次启动时会申请通知、AlarmKit、本地网络和 VPN 配置权限。点击 **Start** 启动 Packet Tunnel，点击 **Stop** 停止。主 App 的 **Test Alarm** 会直接从 App 进程调度一条 3 秒后的测试提醒，**Stop Alarm** 会停止并取消当前提醒；这组按钮用于把 AlarmKit 本身的权限/配置问题与 Packet Tunnel 调度限制分开验证。调试后台只接受经 Wi-Fi 到达的私网来源：`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、IPv4 链路本地、IPv6 ULA/链路本地和回环地址。公网来源会在读取请求前被拒绝。
+主 App 首次启动时会申请通知、AlarmKit、本地网络和 VPN 配置权限。点击 **Start** 启动 Packet Tunnel，点击 **Stop** 停止。主 App 的 **Test Alarm** 会直接从 App 进程调度一条约 1 秒后的测试提醒，**Stop Alarm** 会停止并取消当前提醒；这组按钮用于把 AlarmKit 本身的权限/配置问题与 Packet Tunnel 调度限制分开验证。调试后台只接受经 Wi-Fi 到达的私网来源：`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、IPv4 链路本地、IPv6 ULA/链路本地和回环地址。公网来源会在读取请求前被拒绝。
 
 VPN 连接成功后，在同一局域网的电脑访问：
 
@@ -70,7 +70,9 @@ curl http://<手机的局域网IP>:8080/openapi.json
 
 接口没有账号或令牌认证，同一私网内的其他设备也能读取日志和触发通知；只应在可信局域网中开启 VPN。Codex 无法仅凭项目代码自动知道手机当前 IP，需要提供 IP，或先通过 `_wphone-debug._tcp` 的 mDNS/Bonjour 记录发现服务。
 
-“AlarmKit 来电”会在收到事件后约 2 秒触发 iOS 26 系统闹钟页。点“关闭”会停止并取消该提醒；点“打开”会停止提醒、唤醒 WPhone，再由主 App 打开 `weixin://`。普通微信文字通知正文和操作按钮也使用同一跳转方式，按钮名称统一为“打开”。
+“AlarmKit 来电”会在收到事件后约 1 秒触发 iOS 26 系统闹钟页。点“关闭”会停止并取消该提醒；点“打开”会停止提醒、唤醒 WPhone，再由主 App 打开 `weixin://`。普通微信文字通知正文和操作按钮也使用同一跳转方式，按钮名称统一为“打开”。
+
+VPN 只提供 Packet Tunnel Extension 的后台生命周期，不参与路由、代理或通知展示。停止 VPN 不再取消已经调度给系统的 AlarmKit 提醒；主 App 在前台时也仍可直接调度提醒。但局域网 HTTP 监听器运行在 Packet Tunnel 进程中，VPN 停止后 iOS 会终止该进程，因此在重新连接 VPN 前无法接收新的局域网事件。这是后台入口的生命周期限制，不是通知权限依赖 VPN。
 
 VPN Extension 不能调用 `UIApplication`，所以“打开”由 AlarmKit 的 `LiveActivityIntent` 唤醒主 App，主 App 再打开微信。系统会短暂经过 WPhone；公开 API 不支持由后台扩展在完全无用户操作的情况下直接启动微信。
 

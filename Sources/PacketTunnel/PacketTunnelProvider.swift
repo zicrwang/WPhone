@@ -132,7 +132,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         log.info("Stopping packet tunnel, reason=\(reason.rawValue)")
-        alarmKit.stopAll()
+        log.info("Leaving scheduled AlarmKit alerts active while stopping packet tunnel")
         listener?.cancel()
         listener = nil
         listenerStartCompletion = nil
@@ -1333,7 +1333,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 }
 
 private final class AlarmKitCoordinator {
-    static let triggerDelaySeconds = 2
+    static let triggerDelaySeconds = 1
 
     enum Event {
         case scheduled(action: String, key: String, alarmID: UUID)
