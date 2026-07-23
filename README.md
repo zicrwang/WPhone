@@ -32,7 +32,7 @@ VPN 连接成功后，在同一局域网的电脑访问：
 http://<手机的局域网IP>:8080/
 ```
 
-网页包含实时隧道/监听/通知状态、信息弹出调试、电话样式通知调试和增量 `debug.log` 输出。日志按游标读取，每次最多 64 KB，不会在每次刷新时加载完整日志。服务还通过 Bonjour 发布 `_wphone-debug._tcp`。
+网页包含实时隧道/监听/通知/CallKit 状态、信息弹出调试、CallKit 来电调试和增量 `debug.log` 输出。日志按游标读取，每次最多 64 KB，不会在每次刷新时加载完整日志。服务还通过 Bonjour 发布 `_wphone-debug._tcp`。
 
 ## 局域网 API
 
@@ -68,7 +68,9 @@ curl http://<手机的局域网IP>:8080/openapi.json
 
 接口没有账号或令牌认证，同一私网内的其他设备也能读取日志和触发通知；只应在可信局域网中开启 VPN。Codex 无法仅凭项目代码自动知道手机当前 IP，需要提供 IP，或先通过 `_wphone-debug._tcp` 的 mDNS/Bonjour 记录发现服务。
 
-“电话弹出调试”使用 time-sensitive 本地通知模拟电话提醒，不是 CallKit 系统来电页，也不会建立真实通话。后台 Packet Tunnel Extension 无法把普通本地 HTTP 请求等同于合规 VoIP Push 来电流程。
+“CallKit 来电”由 Packet Tunnel Extension 的 `CXProvider` 报告系统来电页，但不会建立真实语音通道。拒绝会立即取消来电；接听会结束这个合成来电并提交一条带“打开微信/关闭”操作的本地通知。点击普通微信文字通知正文或“打开微信”后，系统先唤醒 WPhone，再由主 App 打开 `weixin://`。
+
+CallKit 的系统“接听/拒绝”按钮由 iOS 管理，应用不能改名或接管系统“信息”按钮。Network Extension 也不能调用 `UIApplication` 打开其他 App，因此 CallKit 的接听键无法一步直达微信，接听后还需要点击一次“打开微信”通知。这是公开 API 的平台边界，不是接口配置问题。
 
 ## 兼容指令
 
@@ -93,4 +95,4 @@ Host: iphone.local:8080
 
 `NEPacketTunnelProvider` 不是永久后台运行保证。即使使用 Ad Hoc 或企业签名，iOS 仍可因系统策略、资源压力、网络切换或配置变化停止扩展。空包含路由和排除默认路由可避免主动接管普通流量，但不能承诺所有未来 iOS 版本行为完全相同。
 
-普通本地通知只能播放一次系统声音，删除已送达通知不能中断已经开始的声音。持续响铃或 Critical Alert 需要不同的产品实现和 Apple 授权。
+普通本地通知只能播放一次系统声音，删除已送达通知不能中断已经开始的声音。CallKit 来电由系统控制响铃和结束；Critical Alert 仍需要 Apple 单独授权。

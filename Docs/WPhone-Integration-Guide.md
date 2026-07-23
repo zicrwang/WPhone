@@ -140,7 +140,7 @@ homeassistant.home
 | 移除一条通用提醒 | `notification.dismiss` | `targetId` | 引用对应 `notification.show` 的 `id` |
 | 暂无内置语义的厂商事件 | `custom.<vendor>.<name>` | 无 | 当前只写日志，不能期待弹出通知 |
 
-`conversationId`、`mediaKind` 和 `callKind` 当前只是保留的结构化元数据，发送端不能依赖它们改变通知展示方式。
+`conversationId` 和 `mediaKind` 当前只是保留的结构化元数据。`callKind` 为 `video` 时 CallKit 会标记为视频来电，其他值按音频来电处理；它不会建立媒体通道。
 
 ### 4.1 消息事件
 
@@ -203,7 +203,7 @@ homeassistant.home
 }
 ```
 
-普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`。WPhone 的来电效果是本地通知，不是 CallKit 系统来电页面。
+普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`。WPhone 会为 `call.incoming` 报告 CallKit 系统来电页；拒绝会取消来电，接听后会结束合成来电并显示可进入微信的操作通知。它不是实际 VoIP 通话，也不传输音频。
 
 ### 4.3 通用通知与移除
 
@@ -443,6 +443,6 @@ HTTP `202` 只表示 WPhone 接受并提交了通知请求。iOS 最终是否展
 - `call.ended` 和 `notification.dismiss` 使用正确的 `targetId` 与相同 `source`。
 - 未知响应字段会被忽略，错误逻辑只依赖状态码和 `error.code`。
 - 设备换 IP、VPN 停止、通知权限关闭和 WPhone 重启时有明确诊断信息。
-- 不依赖 CallKit、持续响铃、Critical Alert 或永久后台运行等 v1 未承诺能力。
+- 不依赖真实媒体通话、CallKit 按钮定制、Critical Alert 或永久后台运行等 v1 未承诺能力。
 
 完成以上项目后，其他软件即可在不依赖 WPhone 内部实现的情况下稳定接入 `/api/v1/events`。

@@ -1,3 +1,4 @@
+import CallKit
 import Foundation
 import Network
 import NetworkExtension
@@ -66,6 +67,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var listenerStartCompletion: ((Error?) -> Void)?
     private var listenerReachedReady = false
     private var runtimeState = RuntimeState()
+    private lazy var callKit = CallKitCoordinator { [weak self] event in
+        self?.handleCallKitEvent(event)
+    }
 
     override func startTunnel(
         options: [String: NSObject]?,
@@ -73,6 +77,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     ) {
         log.info("Starting keepalive-only packet tunnel")
         loadProviderConfiguration()
+        NotificationRouting.registerCategories()
         mutateState {
             $0.tunnelStartedAt = Date()
             $0.listenerState = "starting"
@@ -125,6 +130,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         log.info("Stopping packet tunnel, reason=\(reason.rawValue)")
+        callKit.endAll(reason: .remoteEnded)
         listener?.cancel()
         listener = nil
         listenerStartCompletion = nil
@@ -434,20 +440,25 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 identifier: Self.messageNotificationIdentifier,
                 title: title,
                 body: body,
-                action: "DEBUG_MESSAGE"
+                action: "DEBUG_MESSAGE",
+                opensWeChat: true
             )
             sendAccepted(action: "DEBUG_MESSAGE", on: connection)
         case ("POST", "/api/debug/call"):
             let caller = request.queryValue(named: "caller", maximumCharacters: 80) ?? "WPhone 调试来电"
-            submitNotification(
-                identifier: Self.callNotificationIdentifier,
-                title: "电话弹出调试",
-                body: caller,
-                action: "DEBUG_CALL_NOTIFICATION"
+            reportIncomingCall(
+                key: "debug-call",
+                caller: caller,
+                hasVideo: false,
+                action: "DEBUG_CALLKIT_INCOMING"
             )
             sendAccepted(
-                action: "DEBUG_CALL_NOTIFICATION",
-                extra: ["mode": "local_notification", "callKit": false],
+                action: "DEBUG_CALLKIT_INCOMING",
+                extra: [
+                    "mode": "callkit",
+                    "callKit": true,
+                    "answerBehavior": "open-wechat-notification"
+                ],
                 on: connection
             )
         case ("POST", "/api/debug/stop"):
@@ -628,19 +639,32 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 action: "EVENT_MESSAGE_RECEIVED",
                 priority: event.priority,
                 sound: event.sound,
-                threadIdentifier: "app.wephone.vpn.events.\(event.source)"
+                threadIdentifier: "app.wephone.vpn.events.\(event.source)",
+                opensWeChat: true
             )
         case "call.incoming":
-            submitNotification(
-                identifier: identifier,
-                title: event.payloadString("title") ?? "来电通知",
-                body: event.payloadString("caller") ?? "未知来电",
-                action: "EVENT_CALL_INCOMING",
-                priority: event.priority,
-                sound: event.sound,
-                threadIdentifier: "app.wephone.vpn.calls.\(event.source)"
+            reportIncomingCall(
+                key: callKey(source: event.source, eventID: event.id),
+                caller: event.payloadString("caller") ?? "未知来电",
+                hasVideo: event.payloadString("callKind") == "video",
+                action: "EVENT_CALLKIT_INCOMING"
             )
-        case "call.ended", "notification.dismiss":
+        case "call.ended":
+            guard let targetID = event.payloadString("targetId") else { return }
+            let targetIdentifier = WPhoneEventContract.notificationIdentifier(
+                source: event.source,
+                eventID: targetID
+            )
+            let center = UNUserNotificationCenter.current()
+            center.removePendingNotificationRequests(withIdentifiers: [targetIdentifier])
+            center.removeDeliveredNotifications(withIdentifiers: [targetIdentifier])
+            _ = callKit.end(
+                key: callKey(source: event.source, eventID: targetID),
+                reason: .remoteEnded
+            )
+            recordAction("EVENT_CALLKIT_ENDED")
+            log.info("Event CallKit call ended source=\(event.source) targetId=\(targetID)")
+        case "notification.dismiss":
             guard let targetID = event.payloadString("targetId") else { return }
             let targetIdentifier = WPhoneEventContract.notificationIdentifier(
                 source: event.source,
@@ -726,6 +750,58 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         )
     }
 
+    private func callKey(source: String, eventID: String) -> String {
+        "\(source):\(eventID)"
+    }
+
+    private func reportIncomingCall(
+        key: String,
+        caller: String,
+        hasVideo: Bool,
+        action: String
+    ) {
+        callKit.reportIncoming(
+            key: key,
+            caller: caller,
+            hasVideo: hasVideo,
+            action: action
+        )
+    }
+
+    private func handleCallKitEvent(_ event: CallKitCoordinator.Event) {
+        switch event {
+        case .reported(let action, let key):
+            recordAction(action)
+            log.info("\(action) CallKit call reported key=\(key)")
+        case .reportFailed(let key, let message):
+            recordError("CallKit report failed key=\(key): \(message)")
+            submitNotification(
+                identifier: Self.callNotificationIdentifier,
+                title: "微信来电",
+                body: "CallKit 不可用，点击打开微信",
+                action: "CALLKIT_FALLBACK_NOTIFICATION",
+                opensWeChat: true
+            )
+        case .answered(let key):
+            recordAction("CALLKIT_ANSWERED")
+            log.info("CallKit answered key=\(key)")
+            submitNotification(
+                identifier: Self.callNotificationIdentifier,
+                title: "微信来电",
+                body: "点击此通知或“打开微信”进入微信",
+                action: "CALLKIT_OPEN_WECHAT_PROMPT",
+                sound: "none",
+                opensWeChat: true
+            )
+        case .declined(let key):
+            recordAction("CALLKIT_DECLINED")
+            log.info("CallKit declined key=\(key)")
+        case .reset:
+            recordAction("CALLKIT_RESET")
+            log.info("CallKit provider reset")
+        }
+    }
+
     private func submitNotification(
         identifier: String,
         title: String,
@@ -733,13 +809,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         action: String,
         priority: String = "timeSensitive",
         sound: String = "default",
-        threadIdentifier: String = "app.wephone.vpn.debug"
+        threadIdentifier: String = "app.wephone.vpn.debug",
+        opensWeChat: Bool = false
     ) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = sound == "none" ? nil : .default
         content.threadIdentifier = threadIdentifier
+        if opensWeChat {
+            NotificationRouting.routeToWeChat(content)
+        }
         if #available(iOS 15.0, *), priority == "timeSensitive" {
             content.interruptionLevel = .timeSensitive
         }
@@ -768,6 +848,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        callKit.endAll(reason: .remoteEnded)
         recordAction("STOP_DEBUG")
         log.info("Debug notifications removed")
     }
@@ -841,7 +922,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "status",
                 "incremental_logs",
                 "message_notification",
-                "call_style_notification"
+                "callkit_incoming_call",
+                "wechat_notification_action"
             ]
         ]
     }
@@ -886,8 +968,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "authorization": state.notificationAuthorization,
                 "lastAction": jsonValue(state.lastAction),
                 "lastActionAt": jsonValue(state.lastActionAt.map { dateFormatter.string(from: $0) }),
-                "callDebugMode": "local-notification",
-                "callKit": false
+                "callDebugMode": "callkit",
+                "callKit": true,
+                "activeCallCount": callKit.activeCallCount,
+                "answerBehavior": "open-wechat-notification"
             ],
             "events": [
                 "endpoint": WPhoneEventContract.endpoint,
@@ -1108,7 +1192,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         .dot.ready { background: #18864b; }
         main { padding: 24px 0 36px; }
         section { padding: 20px 0; border-bottom: 1px solid #d9dee2; }
-        .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+        .stats { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
         .stat { background: #fff; border: 1px solid #d9dee2; border-radius: 6px; padding: 14px; min-height: 82px; }
         .stat span { display: block; color: #65727a; font-size: 12px; margin-bottom: 8px; }
         .stat strong { display: block; font-size: 16px; overflow-wrap: anywhere; }
@@ -1134,6 +1218,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
           <div class="stat"><span>隧道用途</span><strong id="purpose">-</strong></div>
           <div class="stat"><span>运行时间</span><strong id="uptime">-</strong></div>
           <div class="stat"><span>通知权限</span><strong id="notification">-</strong></div>
+          <div class="stat"><span>CallKit</span><strong id="callKit">-</strong></div>
           <div class="stat"><span>请求总数</span><strong id="requests">-</strong></div>
           <div class="stat"><span>本次事件</span><strong id="eventsAccepted">-</strong></div>
           <div class="stat"><span>重复事件</span><strong id="eventsDuplicate">-</strong></div>
@@ -1147,8 +1232,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
               <button type="submit">弹出信息</button>
             </form>
             <form id="callForm">
-              <label>来电名称<input id="caller" value="WPhone 调试来电" maxlength="80"></label>
-              <button type="submit">电话弹出</button>
+              <label>来电名称<input id="caller" value="微信来电" maxlength="80"></label>
+              <button type="submit">CallKit 来电</button>
               <button id="stopButton" class="secondary" type="button">停止并清除</button>
             </form>
           </div>
@@ -1188,6 +1273,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             byId('purpose').textContent = data.tunnel.purpose;
             byId('uptime').textContent = duration(data.tunnel.uptimeSeconds);
             byId('notification').textContent = data.notifications.authorization;
+            byId('callKit').textContent = data.notifications.callKit ? `运行 · ${data.notifications.activeCallCount}` : '不可用';
             byId('requests').textContent = String(data.listener.totalRequests);
             byId('eventsAccepted').textContent = String(data.events.acceptedCount);
             byId('eventsDuplicate').textContent = String(data.events.duplicateCount);
@@ -1237,7 +1323,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         byId('callForm').addEventListener('submit', event => {
           event.preventDefault();
           const query = new URLSearchParams({ caller: byId('caller').value });
-          runAction(`/api/debug/call?${query}`, '电话样式通知已提交');
+          runAction(`/api/debug/call?${query}`, 'CallKit 来电已提交');
         });
         byId('stopButton').addEventListener('click', () => runAction('/api/debug/stop', '调试通知已清除'));
         byId('clearView').addEventListener('click', () => { byId('logs').textContent = ''; });
@@ -1250,4 +1336,145 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     </body>
     </html>
     """#
+}
+
+private final class CallKitCoordinator: NSObject, CXProviderDelegate {
+    enum Event {
+        case reported(action: String, key: String)
+        case reportFailed(key: String, message: String)
+        case answered(key: String)
+        case declined(key: String)
+        case reset
+    }
+
+    private struct ActiveCall {
+        let key: String
+        let action: String
+    }
+
+    private let provider: CXProvider
+    private let eventHandler: (Event) -> Void
+    private let lock = NSLock()
+    private var callsByUUID: [UUID: ActiveCall] = [:]
+    private var uuidByKey: [String: UUID] = [:]
+
+    init(eventHandler: @escaping (Event) -> Void) {
+        let configuration = CXProviderConfiguration(localizedName: "手机信息通知")
+        configuration.supportsVideo = true
+        configuration.maximumCallGroups = 1
+        configuration.maximumCallsPerCallGroup = 1
+        configuration.supportedHandleTypes = [.generic]
+        configuration.includesCallsInRecents = false
+        provider = CXProvider(configuration: configuration)
+        self.eventHandler = eventHandler
+        super.init()
+        provider.setDelegate(
+            self,
+            queue: DispatchQueue(label: "app.wephone.vpn.callkit", qos: .userInitiated)
+        )
+    }
+
+    var activeCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return callsByUUID.count
+    }
+
+    func reportIncoming(key: String, caller: String, hasVideo: Bool, action: String) {
+        endAll(reason: .unanswered)
+
+        let uuid = UUID()
+        let activeCall = ActiveCall(key: key, action: action)
+        lock.lock()
+        callsByUUID[uuid] = activeCall
+        uuidByKey[key] = uuid
+        lock.unlock()
+
+        let update = CXCallUpdate()
+        update.remoteHandle = CXHandle(type: .generic, value: caller)
+        update.localizedCallerName = caller
+        update.hasVideo = hasVideo
+        update.supportsDTMF = false
+        update.supportsGrouping = false
+        update.supportsHolding = false
+        update.supportsUngrouping = false
+
+        provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
+            guard let self else { return }
+            if let error {
+                _ = self.remove(uuid: uuid)
+                self.eventHandler(.reportFailed(key: key, message: error.localizedDescription))
+            } else if self.contains(uuid: uuid) {
+                self.eventHandler(.reported(action: action, key: key))
+            }
+        }
+    }
+
+    @discardableResult
+    func end(key: String, reason: CXCallEndedReason) -> Bool {
+        lock.lock()
+        let uuid = uuidByKey[key]
+        lock.unlock()
+        guard let uuid, remove(uuid: uuid) != nil else { return false }
+        provider.reportCall(with: uuid, endedAt: Date(), reason: reason)
+        return true
+    }
+
+    func endAll(reason: CXCallEndedReason) {
+        lock.lock()
+        let uuids = Array(callsByUUID.keys)
+        callsByUUID.removeAll(keepingCapacity: false)
+        uuidByKey.removeAll(keepingCapacity: false)
+        lock.unlock()
+
+        let endedAt = Date()
+        uuids.forEach { provider.reportCall(with: $0, endedAt: endedAt, reason: reason) }
+    }
+
+    func providerDidReset(_ provider: CXProvider) {
+        lock.lock()
+        callsByUUID.removeAll(keepingCapacity: false)
+        uuidByKey.removeAll(keepingCapacity: false)
+        lock.unlock()
+        eventHandler(.reset)
+    }
+
+    func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
+        guard let call = remove(uuid: action.callUUID) else {
+            action.fail()
+            return
+        }
+        action.fulfill()
+        eventHandler(.answered(key: call.key))
+
+        // WPhone is a notification bridge, not a media-call provider. End the
+        // system call immediately after the user accepts it, then present the
+        // user-driven WeChat deep-link notification from the containing app.
+        provider.reportCall(with: action.callUUID, endedAt: Date(), reason: .remoteEnded)
+    }
+
+    func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
+        guard let call = remove(uuid: action.callUUID) else {
+            action.fulfill()
+            return
+        }
+        action.fulfill()
+        eventHandler(.declined(key: call.key))
+    }
+
+    private func contains(uuid: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return callsByUUID[uuid] != nil
+    }
+
+    private func remove(uuid: UUID) -> ActiveCall? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let call = callsByUUID.removeValue(forKey: uuid) else { return nil }
+        if uuidByKey[call.key] == uuid {
+            uuidByKey.removeValue(forKey: call.key)
+        }
+        return call
+    }
 }

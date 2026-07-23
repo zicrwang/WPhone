@@ -14,6 +14,8 @@
 		A10000000000000000000005 /* SharedLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* SharedLogger.swift */; };
 		A10000000000000000000006 /* PacketTunnel.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* PacketTunnel.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A10000000000000000000007 /* WPhoneEventAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* WPhoneEventAPI.swift */; };
+		A10000000000000000000008 /* NotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* NotificationRouting.swift */; };
+		A10000000000000000000009 /* NotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* NotificationRouting.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,6 +54,7 @@
 		A20000000000000000000008 /* PacketTunnel.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = PacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000010 /* WPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000011 /* WPhoneEventAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WPhoneEventAPI.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* NotificationRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRouting.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -114,6 +117,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000004 /* SharedLogger.swift */,
+				A20000000000000000000012 /* NotificationRouting.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -227,6 +231,7 @@
 				A10000000000000000000001 /* WPhoneApp.swift in Sources */,
 				A10000000000000000000002 /* TunnelController.swift in Sources */,
 				A10000000000000000000003 /* SharedLogger.swift in Sources */,
+				A10000000000000000000008 /* NotificationRouting.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -237,6 +242,7 @@
 				A10000000000000000000004 /* PacketTunnelProvider.swift in Sources */,
 				A10000000000000000000005 /* SharedLogger.swift in Sources */,
 				A10000000000000000000007 /* WPhoneEventAPI.swift in Sources */,
+				A10000000000000000000009 /* NotificationRouting.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
