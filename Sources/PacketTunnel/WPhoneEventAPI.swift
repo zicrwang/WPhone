@@ -413,7 +413,7 @@ enum WPhoneEventContract {
       "openapi": "3.0.3",
       "info": {
         "title": "WPhone LAN API",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "description": "Versioned event delivery and private-LAN debug API for WPhone. This API has no authentication or TLS and must remain on a trusted private network."
       },
       "servers": [{ "url": "/" }],
@@ -501,8 +501,8 @@ enum WPhoneEventContract {
         },
         "/api/debug/call": {
           "post": {
-            "operationId": "showDebugCallKitIncomingCall",
-            "description": "Reports a CallKit incoming call. Answering ends the synthetic call and submits an actionable notification that opens WeChat after a second user tap; declining cancels CallKit.",
+            "operationId": "scheduleDebugAlarmKitAlert",
+            "description": "Schedules an iOS 26 AlarmKit alert. The Close button stops it; the Open button launches WPhone and then opens WeChat.",
             "parameters": [{
               "name": "caller",
               "in": "query",
@@ -514,7 +514,7 @@ enum WPhoneEventContract {
         },
         "/api/debug/stop": {
           "post": {
-            "operationId": "stopDebugNotifications",
+            "operationId": "stopDebugAlerts",
             "responses": { "200": { "$ref": "#/components/responses/Success" } }
           }
         }

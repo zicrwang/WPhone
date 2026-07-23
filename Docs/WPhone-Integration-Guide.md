@@ -140,7 +140,7 @@ homeassistant.home
 | 移除一条通用提醒 | `notification.dismiss` | `targetId` | 引用对应 `notification.show` 的 `id` |
 | 暂无内置语义的厂商事件 | `custom.<vendor>.<name>` | 无 | 当前只写日志，不能期待弹出通知 |
 
-`conversationId` 和 `mediaKind` 当前只是保留的结构化元数据。`callKind` 为 `video` 时 CallKit 会标记为视频来电，其他值按音频来电处理；它不会建立媒体通道。
+`conversationId`、`mediaKind` 和 `callKind` 当前只是保留的结构化元数据。AlarmKit 不区分音频和视频来电，也不会建立媒体通道。
 
 ### 4.1 消息事件
 
@@ -203,7 +203,7 @@ homeassistant.home
 }
 ```
 
-普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`。WPhone 会为 `call.incoming` 报告 CallKit 系统来电页；拒绝会取消来电，接听后会结束合成来电并显示可进入微信的操作通知。它不是实际 VoIP 通话，也不传输音频。
+普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`。WPhone 会为 `call.incoming` 调度 iOS 26 AlarmKit 系统提醒：“关闭”停止提醒，“打开”启动 WPhone 后进入微信。它不是实际 VoIP 通话，也不传输音频；新的来电提醒会替换上一条活动提醒。
 
 ### 4.3 通用通知与移除
 
@@ -414,12 +414,13 @@ GET http://<iphone-ip>:8080/openapi.json
 1. 主 App 中 VPN 是否已连接。
 2. `GET /health` 是否返回 `ok: true`。
 3. `GET /api/status` 中 `listener.state` 是否为 `ready`。
-4. `notifications.authorization` 是否为 `authorized` 或 `provisional`。
+4. 普通消息检查 `notifications.authorization` 是否为 `authorized` 或 `provisional`；来电检查 `alarmKit.authorization` 是否为 `authorized`。
 5. `events.acceptedCount`、`lastEventId` 和 `lastEventEffect` 是否更新。
-6. 使用 `/api/logs?cursor=0` 查看通知提交错误。
-7. 检查 iOS 专注模式、通知设置和声音设置。
+6. 来电后检查 `alarmKit.active`、`activeAlarmId` 和 `activeCallKey`。
+7. 使用 `/api/logs?cursor=0` 查看 AlarmKit 或通知提交错误。
+8. 检查 iOS 闹钟权限、通知设置和声音设置。
 
-HTTP `202` 只表示 WPhone 接受并提交了通知请求。iOS 最终是否展示、播放声音或以 time-sensitive 方式呈现仍由系统决定。
+HTTP `202` 只表示 WPhone 接受并提交了本地处理请求。iOS 最终是否展示 AlarmKit/通知、播放声音或以 time-sensitive 方式呈现仍由系统决定。
 
 ## 10. 安全边界
 
@@ -443,6 +444,7 @@ HTTP `202` 只表示 WPhone 接受并提交了通知请求。iOS 最终是否展
 - `call.ended` 和 `notification.dismiss` 使用正确的 `targetId` 与相同 `source`。
 - 未知响应字段会被忽略，错误逻辑只依赖状态码和 `error.code`。
 - 设备换 IP、VPN 停止、通知权限关闭和 WPhone 重启时有明确诊断信息。
-- 不依赖真实媒体通话、CallKit 按钮定制、Critical Alert 或永久后台运行等 v1 未承诺能力。
+- 来电提醒设备运行 iOS 26.0 或更高版本，并已在主 App 中允许 AlarmKit 权限。
+- 不依赖真实媒体通话、无人值守打开其他 App、Critical Alert 或永久后台运行等 v1 未承诺能力。
 
 完成以上项目后，其他软件即可在不依赖 WPhone 内部实现的情况下稳定接入 `/api/v1/events`。

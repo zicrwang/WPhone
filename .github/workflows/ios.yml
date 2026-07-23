@@ -18,6 +18,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_PATH="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' -print | sort | tail -n 1)"
+          if [[ -z "$XCODE_PATH" ]]; then
+            echo "::error::Xcode 26 is required for AlarmKit"
+            find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print
+            exit 1
+          fi
+          sudo xcode-select --switch "$XCODE_PATH/Contents/Developer"
+          xcodebuild -version
+
       - name: Build device app without signing
         run: |
           set -uo pipefail

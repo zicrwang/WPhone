@@ -25,6 +25,11 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
         return true
     }
 
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        guard WPhoneAlarmStore.consumePendingOpen() else { return }
+        openWeChat(completion: nil)
+    }
+
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
@@ -47,14 +52,7 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
                 completionHandler()
                 return
             }
-            UIApplication.shared.open(destination, options: [:]) { opened in
-                if opened {
-                    SharedLogger.shared.info("WeChat opened from notification action")
-                } else {
-                    SharedLogger.shared.error("Unable to open WeChat using weixin://")
-                }
-                completionHandler()
-            }
+            openWeChat(destination: destination, completion: completionHandler)
         case NotificationRouting.dismissActionIdentifier,
              UNNotificationDismissActionIdentifier:
             center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
@@ -62,6 +60,25 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
             completionHandler()
         default:
             completionHandler()
+        }
+    }
+
+    private func openWeChat(
+        destination: URL? = URL(string: NotificationRouting.weChatDestination),
+        completion: (() -> Void)?
+    ) {
+        guard let destination else {
+            SharedLogger.shared.error("Invalid WeChat destination")
+            completion?()
+            return
+        }
+        UIApplication.shared.open(destination, options: [:]) { opened in
+            if opened {
+                SharedLogger.shared.info("WeChat opened from user action")
+            } else {
+                SharedLogger.shared.error("Unable to open WeChat using weixin://")
+            }
+            completion?()
         }
     }
 }
@@ -106,6 +123,7 @@ private struct ContentView: View {
         .task {
             await tunnel.load()
             await tunnel.requestNotificationAuthorization()
+            await tunnel.requestAlarmAuthorization()
         }
         .sheet(isPresented: $showingLog) {
             NavigationView {

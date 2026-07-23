@@ -4,6 +4,8 @@
 
 项目不使用任何第三方 Web 或网络框架。日志同时写入 Unified Logging 和 App Group 目录中的 `debug.log`，文件达到 512 KB 时自动轮转，主 App 内可直接查看。
 
+来电提醒使用 iOS 26 的 AlarmKit，因此项目最低支持 iOS 26.0，并要求 GitHub Actions 使用 Xcode 26。首次运行必须允许系统“闹钟”权限；不需要 CallKit、PushKit、APNs 或 Critical Alert entitlement。
+
 ## 当前标识
 
 - 主 App：`app.wephone.vpn`
@@ -24,7 +26,7 @@
 
 ## 使用
 
-主 App 首次启动时会申请通知、本地网络和 VPN 配置权限。点击 **Start** 启动 Packet Tunnel，点击 **Stop** 停止。调试后台只接受经 Wi-Fi 到达的私网来源：`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、IPv4 链路本地、IPv6 ULA/链路本地和回环地址。公网来源会在读取请求前被拒绝。
+主 App 首次启动时会申请通知、AlarmKit、本地网络和 VPN 配置权限。点击 **Start** 启动 Packet Tunnel，点击 **Stop** 停止。调试后台只接受经 Wi-Fi 到达的私网来源：`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、IPv4 链路本地、IPv6 ULA/链路本地和回环地址。公网来源会在读取请求前被拒绝。
 
 VPN 连接成功后，在同一局域网的电脑访问：
 
@@ -32,11 +34,11 @@ VPN 连接成功后，在同一局域网的电脑访问：
 http://<手机的局域网IP>:8080/
 ```
 
-网页包含实时隧道/监听/通知/CallKit 状态、信息弹出调试、CallKit 来电调试和增量 `debug.log` 输出。日志按游标读取，每次最多 64 KB，不会在每次刷新时加载完整日志。服务还通过 Bonjour 发布 `_wphone-debug._tcp`。
+网页包含实时隧道、监听、通知、AlarmKit 权限与活动状态、信息弹出调试、AlarmKit 来电调试和增量 `debug.log` 输出。日志按游标读取，每次最多 64 KB，不会在每次刷新时加载完整日志。服务还通过 Bonjour 发布 `_wphone-debug._tcp`。
 
 ## 局域网 API
 
-正式事件协议由 WPhone 定义，字段和响应规范见 [WPhone Event API v1](Docs/WPhone-API-v1.md)，第三方软件的发送队列、重试和事件映射建议见 [外部软件接入指南](Docs/WPhone-Integration-Guide.md)。生产发送端使用：
+正式事件协议由 WPhone 定义，字段和响应规范见 [WPhone Event API v1](Docs/WPhone-API-v1.md)，第三方软件的发送队列、重试和事件映射建议见 [外部软件接入指南](Docs/WPhone-Integration-Guide.md)，AlarmKit 权限、按钮、状态和真机验收见 [WPhone AlarmKit 说明](Docs/WPhone-AlarmKit.md)。生产发送端使用：
 
 ```text
 POST /api/v1/events
@@ -68,9 +70,9 @@ curl http://<手机的局域网IP>:8080/openapi.json
 
 接口没有账号或令牌认证，同一私网内的其他设备也能读取日志和触发通知；只应在可信局域网中开启 VPN。Codex 无法仅凭项目代码自动知道手机当前 IP，需要提供 IP，或先通过 `_wphone-debug._tcp` 的 mDNS/Bonjour 记录发现服务。
 
-“CallKit 来电”由 Packet Tunnel Extension 的 `CXProvider` 报告系统来电页，但不会建立真实语音通道。拒绝会立即取消来电；接听会结束这个合成来电并提交一条带“打开微信/关闭”操作的本地通知。点击普通微信文字通知正文或“打开微信”后，系统先唤醒 WPhone，再由主 App 打开 `weixin://`。
+“AlarmKit 来电”会在收到事件后约 2 秒触发 iOS 26 系统闹钟页。点“关闭”会停止并取消该提醒；点“打开”会停止提醒、唤醒 WPhone，再由主 App 打开 `weixin://`。普通微信文字通知正文和操作按钮也使用同一跳转方式，按钮名称统一为“打开”。
 
-CallKit 的系统“接听/拒绝”按钮由 iOS 管理，应用不能改名或接管系统“信息”按钮。Network Extension 也不能调用 `UIApplication` 打开其他 App，因此 CallKit 的接听键无法一步直达微信，接听后还需要点击一次“打开微信”通知。这是公开 API 的平台边界，不是接口配置问题。
+VPN Extension 不能调用 `UIApplication`，所以“打开”由 AlarmKit 的 `LiveActivityIntent` 唤醒主 App，主 App 再打开微信。系统会短暂经过 WPhone；公开 API 不支持由后台扩展在完全无用户操作的情况下直接启动微信。
 
 ## 兼容指令
 
@@ -89,10 +91,10 @@ Host: iphone.local:8080
 
 ```
 
-`START_RING` 提交一条 time-sensitive 本地通知，`STOP_RING` 移除对应的待处理和已送达通知。
+`START_RING` 调度一条 AlarmKit 系统提醒，`STOP_RING` 停止当前 AlarmKit 提醒并移除对应的待处理和已送达通知。
 
 ## 平台限制
 
 `NEPacketTunnelProvider` 不是永久后台运行保证。即使使用 Ad Hoc 或企业签名，iOS 仍可因系统策略、资源压力、网络切换或配置变化停止扩展。空包含路由和排除默认路由可避免主动接管普通流量，但不能承诺所有未来 iOS 版本行为完全相同。
 
-普通本地通知只能播放一次系统声音，删除已送达通知不能中断已经开始的声音。CallKit 来电由系统控制响铃和结束；Critical Alert 仍需要 Apple 单独授权。
+普通本地通知只能播放一次系统声音，删除已送达通知不能中断已经开始的声音。AlarmKit 的提醒样式、声音、持续时间和最终呈现由 iOS 控制；它不是永久响铃保证，也不应被当作 Critical Alert。WPhone 当前一次只保留一条活动 AlarmKit 来电，新来电会替换上一条。AlarmKit 调度从 Packet Tunnel Extension 发起，这条组合需要在目标 iOS 26.x 真机上验证；失败时会退回带“打开”操作的 time-sensitive 本地通知，并在 `debug.log` 和 `/api/status` 留下错误。

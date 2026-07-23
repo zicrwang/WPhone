@@ -11,7 +11,7 @@ enum NotificationRouting {
     static func registerCategories(on center: UNUserNotificationCenter = .current()) {
         let openWeChat = UNNotificationAction(
             identifier: openWeChatActionIdentifier,
-            title: "打开微信",
+            title: "打开",
             options: [.foreground]
         )
         let dismiss = UNNotificationAction(

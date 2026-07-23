@@ -1,3 +1,4 @@
+import AlarmKit
 import Combine
 import Foundation
 import NetworkExtension
@@ -42,6 +43,35 @@ final class TunnelController: NSObject, ObservableObject {
         } catch {
             lastError = error.localizedDescription
             SharedLogger.shared.error("Notification authorization failed: \(error.localizedDescription)")
+        }
+    }
+
+    func requestAlarmAuthorization() async {
+        do {
+            let stateDescription: String
+            let isAuthorized: Bool
+            switch AlarmManager.shared.authorizationState {
+            case .notDetermined:
+                let requestedState = try await AlarmManager.shared.requestAuthorization()
+                stateDescription = String(describing: requestedState)
+                isAuthorized = requestedState == .authorized
+            case .denied:
+                stateDescription = "denied"
+                isAuthorized = false
+            case .authorized:
+                stateDescription = "authorized"
+                isAuthorized = true
+            @unknown default:
+                stateDescription = "unknown"
+                isAuthorized = false
+            }
+            SharedLogger.shared.info("AlarmKit authorization: \(stateDescription)")
+            if !isAuthorized {
+                lastError = "AlarmKit permission is required for system alarm alerts."
+            }
+        } catch {
+            lastError = error.localizedDescription
+            SharedLogger.shared.error("AlarmKit authorization failed: \(error.localizedDescription)")
         }
     }
 
