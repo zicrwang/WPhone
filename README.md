@@ -4,7 +4,7 @@
 
 项目不使用任何第三方 Web 或网络框架。日志同时写入 Unified Logging 和 App Group 目录中的 `debug.log`，文件达到 512 KB 时自动轮转，主 App 内可直接查看。
 
-## 当前签名标识
+## 当前标识
 
 - 主 App：`app.star6979.lettuce4401`
 - Packet Tunnel Extension：`app.star6979.lettuce4401.PacketTunnel`
@@ -13,28 +13,15 @@
 - App Group：`group.3970029fa0cfcf6d.1`
 - Apple Team ID：`84V4S488EQ`
 
-提供的证书 ZIP 中，主 App profile 与上述主 App ID 匹配，包含 Packet Tunnel entitlement、选定的 App Group，以及用户提供的设备 UDID。证书和 profile 没有复制到本仓库。
-
-嵌入式 Extension 必须使用独立 profile。请在 Apple Developer 网站注册 `app.star6979.lettuce4401.PacketTunnel`，启用 **Network Extensions > Packet Tunnel Provider** 和 `group.3970029fa0cfcf6d.1`，然后生成一份包含同一台设备的 Ad Hoc profile。创建 profile 不需要苹果电脑。
-
-## GitHub Actions
+## 固定构建方式
 
 每次推送都会执行无需签名的真机 Release 编译，确认主 App 已嵌入 `PacketTunnel.appex`，并上传 `WPhone-unsigned-ipa` artifact。下载其中的 `WPhone-unsigned.ipa` 后，可以交给支持 App Extension 和相应 entitlement 的手机端签名工具处理；这条流程不需要 GitHub Secrets。
 
-未签名 IPA 只包含完整程序结构，不会绕过 iOS 的签名校验。签名工具仍需为主 App 和 `PacketTunnel.appex` 分别使用匹配各自 Bundle ID、设备 UDID、App Group 和 Network Extension entitlement 的描述文件。只有主 App profile 时，通常可以安装主界面，但 VPN Extension 无法正常安装或启动。
+这是本项目的固定云端构建方式：GitHub Actions 不导入 P12、不安装 provisioning profile、不读取 Apple 签名 Secrets，也不执行 Ad Hoc 签名。`WPhone-unsigned.ipa` 内保持标准嵌套结构：`Payload/WPhone.app/PlugIns/PacketTunnel.appex`。
 
-进入 GitHub 仓库的 **Actions > Build iOS app > Run workflow** 后，工作流还会尝试使用以下 Secrets 执行完整的真机 Ad Hoc 签名并上传 IPA。签名产物名为 `WPhone-ipa`：
+未签名 IPA 不会绕过 iOS 的签名校验。安装前仍需由手机端工具完成签名，并确保主 App 和嵌入的 `PacketTunnel.appex` 都被正确处理。已经在实际设备上验证：手机端签名后可以申请通知权限并连接 VPN。
 
-- `APPLE_TEAM_ID`：`84V4S488EQ`
-- `IOS_P12_BASE64`：P12 文件的 Base64 内容
-- `IOS_P12_PASSWORD`：证书 ZIP 中文本文件提供的 P12 密码
-- `IOS_APP_MOBILEPROVISION_BASE64`：现有主 App profile 的 Base64 内容
-- `IOS_EXTENSION_MOBILEPROVISION_BASE64`：新生成 Extension profile 的 Base64 内容
-- `APPLE_SIGNING_CERTIFICATE`：可选；默认使用 `Apple Distribution`
-
-Linux 环境可使用 `base64 -w 0 文件名` 生成单行 Secret。不要把 ZIP、P12、密码、profile 或 Base64 内容提交到 Git。
-
-工作流会检查两个 profile 的 application identifier，并在不匹配时停止归档。最终 IPA 位于该次 workflow run 的 `WPhone-ipa` artifact 中。
+进入 GitHub 仓库的 **Actions > Build iOS app > Run workflow** 可手动重新构建；也可以直接推送到 `main` 自动触发。最终下载 `WPhone-unsigned-ipa` artifact 即可。
 
 ## 使用
 
