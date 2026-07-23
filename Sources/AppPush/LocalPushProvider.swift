@@ -10,13 +10,13 @@ final class LocalPushProvider: NEAppPushProvider {
     private let queue = DispatchQueue(label: "app.wephone.vpn.local-push-provider")
     private let log = SharedLogger.shared
     private lazy var idempotencyStore = WPhoneEventIdempotencyStore(log: log)
-    private var connection: NWConnection?
+    private var connection: Network.NWConnection?
     private var receiveBuffer = Data()
     private var reconnectWorkItem: DispatchWorkItem?
     private var isRunning = false
     private var isReady = false
     private var host = ""
-    private var port: NWEndpoint.Port = 8081
+    private var port: Network.NWEndpoint.Port = 8081
     private var deviceID = ""
 
     override func start() {
@@ -26,7 +26,7 @@ final class LocalPushProvider: NEAppPushProvider {
                   let host = configuration["host"] as? String,
                   !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   let rawPort = configuration["port"] as? NSNumber,
-                  let port = NWEndpoint.Port(rawValue: rawPort.uint16Value) else {
+                  let port = Network.NWEndpoint.Port(rawValue: rawPort.uint16Value) else {
                 self.log.error("Local Push provider configuration is invalid")
                 return
             }
@@ -80,21 +80,29 @@ final class LocalPushProvider: NEAppPushProvider {
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
 
-        let parameters = NWParameters.tcp
+        let parameters = Network.NWParameters.tcp
         parameters.requiredInterfaceType = .wifi
-        let newConnection = NWConnection(host: NWEndpoint.Host(host), port: port, using: parameters)
+        let newConnection = Network.NWConnection(
+            host: Network.NWEndpoint.Host(host),
+            port: port,
+            using: parameters
+        )
         connection = newConnection
         isReady = false
         receiveBuffer.removeAll(keepingCapacity: true)
 
-        newConnection.stateUpdateHandler = { [weak self, weak newConnection] state in
+        newConnection.stateUpdateHandler = {
+            [weak self, weak newConnection] (state: Network.NWConnection.State) in
             guard let self, let newConnection, self.connection === newConnection else { return }
             self.handleConnectionState(state, connection: newConnection)
         }
         newConnection.start(queue: queue)
     }
 
-    private func handleConnectionState(_ state: NWConnection.State, connection: NWConnection) {
+    private func handleConnectionState(
+        _ state: Network.NWConnection.State,
+        connection: Network.NWConnection
+    ) {
         switch state {
         case .ready:
             isReady = true
@@ -118,7 +126,7 @@ final class LocalPushProvider: NEAppPushProvider {
         }
     }
 
-    private func finishConnection(_ finishedConnection: NWConnection) {
+    private func finishConnection(_ finishedConnection: Network.NWConnection) {
         guard connection === finishedConnection else { return }
         connection = nil
         isReady = false
@@ -137,7 +145,7 @@ final class LocalPushProvider: NEAppPushProvider {
         queue.asyncAfter(deadline: .now() + Self.reconnectDelay, execute: workItem)
     }
 
-    private func receive(on activeConnection: NWConnection) {
+    private func receive(on activeConnection: Network.NWConnection) {
         activeConnection.receive(
             minimumIncompleteLength: 1,
             maximumLength: 4096
