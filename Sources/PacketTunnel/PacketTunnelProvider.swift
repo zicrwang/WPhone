@@ -15,7 +15,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var requestBuffers: [ObjectIdentifier: Data] = [:]
     private var allowedClientIPv4 = "192.168.1.10"
-    private var listenerPort: NWEndpoint.Port = 8080
+    private var listenerPort: Network.NWEndpoint.Port = 8080
     private var listenerStartCompletion: ((Error?) -> Void)?
     private var listenerReachedReady = false
 
@@ -105,7 +105,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             allowedClientIPv4 = allowed
         }
         if let port = values["listenerPort"] as? NSNumber,
-           let parsed = NWEndpoint.Port(rawValue: port.uint16Value) {
+           let parsed = Network.NWEndpoint.Port(rawValue: port.uint16Value) {
             listenerPort = parsed
         }
     }
@@ -328,7 +328,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         connectionLock.unlock()
     }
 
-    private func clientIPv4(for endpoint: NWEndpoint) -> String? {
+    private func clientIPv4(for endpoint: Network.NWEndpoint) -> String? {
         guard case let .hostPort(host, _) = endpoint else { return nil }
         return String(describing: host).trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
     }
