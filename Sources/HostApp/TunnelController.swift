@@ -1,4 +1,3 @@
-import AlarmKit
 import Combine
 import Foundation
 import NetworkExtension
@@ -11,8 +10,6 @@ final class TunnelController: NSObject, ObservableObject {
 
     @Published private(set) var status: NEVPNStatus = .invalid
     @Published private(set) var lastError: String?
-    @Published private(set) var alarmTestStatus = "Not tested"
-
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
 
@@ -44,100 +41,6 @@ final class TunnelController: NSObject, ObservableObject {
         } catch {
             lastError = error.localizedDescription
             SharedLogger.shared.error("Notification authorization failed: \(error.localizedDescription)")
-        }
-    }
-
-    func requestAlarmAuthorization() async {
-        do {
-            let stateDescription: String
-            let isAuthorized: Bool
-            switch AlarmManager.shared.authorizationState {
-            case .notDetermined:
-                let requestedState = try await AlarmManager.shared.requestAuthorization()
-                stateDescription = String(describing: requestedState)
-                isAuthorized = requestedState == .authorized
-            case .denied:
-                stateDescription = "denied"
-                isAuthorized = false
-            case .authorized:
-                stateDescription = "authorized"
-                isAuthorized = true
-            @unknown default:
-                stateDescription = "unknown"
-                isAuthorized = false
-            }
-            WPhoneAlarmStore.saveHostAuthorization(stateDescription)
-            SharedLogger.shared.info("AlarmKit authorization: \(stateDescription)")
-            if !isAuthorized {
-                lastError = "AlarmKit permission is required for system alarm alerts."
-            }
-        } catch {
-            WPhoneAlarmStore.saveHostAuthorization("error")
-            lastError = error.localizedDescription
-            SharedLogger.shared.error(
-                "AlarmKit authorization failed: \(WPhoneAlarmDiagnostics.describe(error))"
-            )
-        }
-    }
-
-    func scheduleAlarmKitTest() async {
-        let manager = AlarmManager.shared
-        guard manager.authorizationState == .authorized else {
-            alarmTestStatus = "Not authorized"
-            SharedLogger.shared.error("Main app AlarmKit test skipped: authorization is not authorized")
-            await requestAlarmAuthorization()
-            return
-        }
-
-        stopAlarmKitTest(logResult: false)
-        let id = UUID()
-        let caller = "WPhone 主 App 测试"
-        let callKey = "main-app-test"
-        let configuration = WPhoneAlarmConfiguration.make(
-            id: id,
-            caller: caller,
-            callKey: callKey,
-            triggerDate: Date.now.addingTimeInterval(1)
-        )
-        alarmTestStatus = "Scheduling"
-        SharedLogger.shared.debug(
-            "Main app AlarmKit schedule attempt id=\(id.uuidString) authorization=authorized"
-        )
-
-        do {
-            _ = try await manager.schedule(id: id, configuration: configuration)
-            WPhoneAlarmStore.save(WPhoneAlarmRecord(
-                id: id,
-                callKey: callKey,
-                caller: caller,
-                scheduledAt: Date()
-            ))
-            alarmTestStatus = "Scheduled"
-            lastError = nil
-            SharedLogger.shared.info("Main app AlarmKit alarm scheduled id=\(id.uuidString)")
-        } catch {
-            let details = WPhoneAlarmDiagnostics.describe(error)
-            alarmTestStatus = "Failed"
-            lastError = error.localizedDescription
-            SharedLogger.shared.error("Main app AlarmKit schedule failed: \(details)")
-        }
-    }
-
-    func stopAlarmKitTest(logResult: Bool = true) {
-        guard let record = WPhoneAlarmStore.activeAlarm() else {
-            if logResult {
-                alarmTestStatus = "No active alarm"
-            }
-            return
-        }
-        // AlarmKit uses stop for an alerting alarm and cancel for a scheduled one.
-        // Calling both makes this control work on either side of the trigger date.
-        try? AlarmManager.shared.stop(id: record.id)
-        try? AlarmManager.shared.cancel(id: record.id)
-        WPhoneAlarmStore.clear(alarmID: record.id)
-        alarmTestStatus = "Stopped"
-        if logResult {
-            SharedLogger.shared.info("Main app AlarmKit alarm stop/cancel requested id=\(record.id.uuidString)")
         }
     }
 

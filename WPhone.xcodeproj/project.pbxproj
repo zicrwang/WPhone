@@ -16,8 +16,6 @@
 		A10000000000000000000007 /* WPhoneEventAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* WPhoneEventAPI.swift */; };
 		A10000000000000000000008 /* NotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* NotificationRouting.swift */; };
 		A10000000000000000000009 /* NotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* NotificationRouting.swift */; };
-		A10000000000000000000010 /* AlarmBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* AlarmBridge.swift */; };
-		A10000000000000000000011 /* AlarmBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* AlarmBridge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,7 +55,6 @@
 		A20000000000000000000010 /* WPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000011 /* WPhoneEventAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WPhoneEventAPI.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* NotificationRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRouting.swift; sourceTree = "<group>"; };
-		A20000000000000000000013 /* AlarmBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmBridge.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -121,7 +118,6 @@
 			children = (
 				A20000000000000000000004 /* SharedLogger.swift */,
 				A20000000000000000000012 /* NotificationRouting.swift */,
-				A20000000000000000000013 /* AlarmBridge.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -236,7 +232,6 @@
 				A10000000000000000000002 /* TunnelController.swift in Sources */,
 				A10000000000000000000003 /* SharedLogger.swift in Sources */,
 				A10000000000000000000008 /* NotificationRouting.swift in Sources */,
-				A10000000000000000000010 /* AlarmBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -248,7 +243,6 @@
 				A10000000000000000000005 /* SharedLogger.swift in Sources */,
 				A10000000000000000000007 /* WPhoneEventAPI.swift in Sources */,
 				A10000000000000000000009 /* NotificationRouting.swift in Sources */,
-				A10000000000000000000011 /* AlarmBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -281,7 +275,7 @@
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_UNDECLARED_SELECTOR = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -309,7 +303,7 @@
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_UNDECLARED_SELECTOR = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;

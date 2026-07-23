@@ -5,10 +5,20 @@ import UserNotifications
 @main
 struct WPhoneApp: App {
     @UIApplicationDelegateAdaptor(WPhoneAppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var weChatRouter = WeChatLaunchCoordinator.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .fullScreenCover(isPresented: $weChatRouter.isShowingFallback) {
+                    WeChatGatewayView(router: weChatRouter)
+                }
+                .onChange(of: scenePhase) { phase in
+                    if phase == .active {
+                        weChatRouter.applicationDidBecomeActive()
+                    }
+                }
         }
     }
 }
@@ -26,8 +36,7 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
-        guard WPhoneAlarmStore.consumePendingOpen() else { return }
-        openWeChat(completion: nil)
+        WeChatLaunchCoordinator.shared.applicationDidBecomeActive()
     }
 
     func userNotificationCenter(
@@ -35,7 +44,11 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .list, .sound])
+        if notification.request.content.sound == nil {
+            completionHandler([.banner, .list])
+        } else {
+            completionHandler([.banner, .list, .sound])
+        }
     }
 
     func userNotificationCenter(
@@ -52,7 +65,11 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
                 completionHandler()
                 return
             }
-            openWeChat(destination: destination, completion: completionHandler)
+            center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
+            DispatchQueue.main.async {
+                WeChatLaunchCoordinator.shared.requestOpen(destination)
+                completionHandler()
+            }
         case NotificationRouting.dismissActionIdentifier,
              UNNotificationDismissActionIdentifier:
             center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
@@ -62,23 +79,75 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
             completionHandler()
         }
     }
+}
 
-    private func openWeChat(
-        destination: URL? = URL(string: NotificationRouting.weChatDestination),
-        completion: (() -> Void)?
-    ) {
-        guard let destination else {
-            SharedLogger.shared.error("Invalid WeChat destination")
-            completion?()
+final class WeChatLaunchCoordinator: ObservableObject {
+    static let shared = WeChatLaunchCoordinator()
+
+    @Published var isShowingFallback = false
+
+    private var scheduledAttempt: DispatchWorkItem?
+    private var isOpening = false
+
+    private init() {}
+
+    func requestOpen(_ destination: URL) {
+        NotificationRouting.savePendingDestination(destination)
+        SharedLogger.shared.info("WeChat handoff requested from notification action")
+        scheduleOpenAttempt()
+    }
+
+    func applicationDidBecomeActive() {
+        guard NotificationRouting.pendingDestination() != nil else { return }
+        scheduleOpenAttempt()
+    }
+
+    func openFromFallback() {
+        guard let destination = URL(string: NotificationRouting.weChatDestination) else { return }
+        NotificationRouting.savePendingDestination(destination)
+        attemptOpen()
+    }
+
+    func dismissFallback() {
+        scheduledAttempt?.cancel()
+        scheduledAttempt = nil
+        NotificationRouting.clearPendingDestination()
+        isShowingFallback = false
+        SharedLogger.shared.info("WeChat handoff fallback dismissed")
+    }
+
+    private func scheduleOpenAttempt() {
+        guard UIApplication.shared.applicationState == .active else { return }
+        scheduledAttempt?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.attemptOpen()
+        }
+        scheduledAttempt = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: workItem)
+    }
+
+    private func attemptOpen() {
+        guard !isOpening,
+              UIApplication.shared.applicationState == .active,
+              let destination = NotificationRouting.pendingDestination() else {
             return
         }
-        UIApplication.shared.open(destination, options: [:]) { opened in
-            if opened {
-                SharedLogger.shared.info("WeChat opened from user action")
-            } else {
-                SharedLogger.shared.error("Unable to open WeChat using weixin://")
+
+        scheduledAttempt = nil
+        isOpening = true
+        UIApplication.shared.open(destination, options: [:]) { [weak self] opened in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isOpening = false
+                if opened {
+                    NotificationRouting.clearPendingDestination()
+                    self.isShowingFallback = false
+                    SharedLogger.shared.info("WeChat opened from WPhone handoff")
+                } else {
+                    self.isShowingFallback = true
+                    SharedLogger.shared.error("Automatic WeChat handoff failed; showing fallback")
+                }
             }
-            completion?()
         }
     }
 }
@@ -107,27 +176,6 @@ private struct ContentView: View {
                 .disabled(tunnel.status == .disconnected || tunnel.status == .invalid)
             }
 
-            Divider()
-
-            Text("AlarmKit: \(tunnel.alarmTestStatus)")
-                .font(.subheadline)
-
-            HStack(spacing: 12) {
-                Button {
-                    Task { await tunnel.scheduleAlarmKitTest() }
-                } label: {
-                    Label("Test Alarm", systemImage: "alarm.fill")
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button {
-                    tunnel.stopAlarmKitTest()
-                } label: {
-                    Label("Stop Alarm", systemImage: "stop.fill")
-                }
-                .buttonStyle(.bordered)
-            }
-
             if let lastError = tunnel.lastError {
                 Text(lastError)
                     .foregroundStyle(.red)
@@ -144,7 +192,6 @@ private struct ContentView: View {
         .task {
             await tunnel.load()
             await tunnel.requestNotificationAuthorization()
-            await tunnel.requestAlarmAuthorization()
         }
         .sheet(isPresented: $showingLog) {
             NavigationView {
@@ -162,5 +209,39 @@ private struct ContentView: View {
                 }
             }
         }
+    }
+}
+
+private struct WeChatGatewayView: View {
+    @ObservedObject var router: WeChatLaunchCoordinator
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Image(systemName: "bubble.left.and.bubble.right.fill")
+                .font(.system(size: 64))
+                .foregroundStyle(.green)
+                .accessibilityHidden(true)
+            Text("打开微信")
+                .font(.title2.bold())
+            Button {
+                router.openFromFallback()
+            } label: {
+                Label("打开微信", systemImage: "arrow.up.forward.app.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Button {
+                router.dismissFallback()
+            } label: {
+                Label("返回 WPhone", systemImage: "xmark")
+            }
+            .buttonStyle(.bordered)
+            Spacer()
+        }
+        .padding(28)
+        .interactiveDismissDisabled()
     }
 }

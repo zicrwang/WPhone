@@ -1,9 +1,7 @@
-import AlarmKit
-import AppIntents
+import CallKit
 import Foundation
 import Network
 import NetworkExtension
-import SwiftUI
 import UserNotifications
 
 final class PacketTunnelProvider: NEPacketTunnelProvider {
@@ -69,8 +67,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var listenerStartCompletion: ((Error?) -> Void)?
     private var listenerReachedReady = false
     private var runtimeState = RuntimeState()
-    private lazy var alarmKit = AlarmKitCoordinator { [weak self] event in
-        self?.handleAlarmKitEvent(event)
+    private lazy var callKit = CallKitCoordinator { [weak self] event in
+        self?.handleCallKitEvent(event)
     }
 
     override func startTunnel(
@@ -80,6 +78,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         log.info("Starting keepalive-only packet tunnel")
         loadProviderConfiguration()
         NotificationRouting.registerCategories()
+        log.info("CallKit provider ready ringtone=\(callKit.customRingtoneFileName ?? "system")")
         mutateState {
             $0.tunnelStartedAt = Date()
             $0.listenerState = "starting"
@@ -132,7 +131,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         log.info("Stopping packet tunnel, reason=\(reason.rawValue)")
-        log.info("Leaving scheduled AlarmKit alerts active while stopping packet tunnel")
+        callKit.endAll(reason: .remoteEnded)
         listener?.cancel()
         listener = nil
         listenerStartCompletion = nil
@@ -448,17 +447,19 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             sendAccepted(action: "DEBUG_MESSAGE", on: connection)
         case ("POST", "/api/debug/call"):
             let caller = request.queryValue(named: "caller", maximumCharacters: 80) ?? "WPhone 调试来电"
-            scheduleIncomingAlarm(
+            reportIncomingCall(
                 key: "debug-call",
                 caller: caller,
-                action: "DEBUG_ALARMKIT_INCOMING"
+                hasVideo: false,
+                action: "DEBUG_CALLKIT_INCOMING",
+                notificationIdentifier: Self.callNotificationIdentifier
             )
             sendAccepted(
-                action: "DEBUG_ALARMKIT_INCOMING",
+                action: "DEBUG_CALLKIT_INCOMING",
                 extra: [
-                    "mode": "alarmkit",
-                    "alarmKit": true,
-                    "openBehavior": "open-wphone-then-wechat"
+                    "mode": "callkit",
+                    "callKit": true,
+                    "answerBehavior": "end-call-then-foreground-notification"
                 ],
                 on: connection
             )
@@ -644,10 +645,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 opensWeChat: true
             )
         case "call.incoming":
-            scheduleIncomingAlarm(
+            reportIncomingCall(
                 key: callKey(source: event.source, eventID: event.id),
                 caller: event.payloadString("caller") ?? "未知来电",
-                action: "EVENT_ALARMKIT_INCOMING"
+                hasVideo: event.payloadString("callKind") == "video",
+                action: "EVENT_CALLKIT_INCOMING",
+                notificationIdentifier: identifier
             )
         case "call.ended":
             guard let targetID = event.payloadString("targetId") else { return }
@@ -658,9 +661,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             let center = UNUserNotificationCenter.current()
             center.removePendingNotificationRequests(withIdentifiers: [targetIdentifier])
             center.removeDeliveredNotifications(withIdentifiers: [targetIdentifier])
-            _ = alarmKit.stop(key: callKey(source: event.source, eventID: targetID))
-            recordAction("EVENT_ALARMKIT_ENDED")
-            log.info("Event AlarmKit alarm ended source=\(event.source) targetId=\(targetID)")
+            _ = callKit.end(
+                key: callKey(source: event.source, eventID: targetID),
+                reason: .remoteEnded
+            )
+            recordAction("EVENT_CALLKIT_ENDED")
+            log.info("Event CallKit call ended source=\(event.source) targetId=\(targetID)")
         case "notification.dismiss":
             guard let targetID = event.payloadString("targetId") else { return }
             let targetIdentifier = WPhoneEventContract.notificationIdentifier(
@@ -739,10 +745,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func triggerRing() {
-        scheduleIncomingAlarm(
+        reportIncomingCall(
             key: "legacy-ring",
             caller: "局域网提醒",
-            action: "START_RING_ALARMKIT"
+            hasVideo: false,
+            action: "START_RING_CALLKIT",
+            notificationIdentifier: Self.ringNotificationIdentifier
         )
     }
 
@@ -750,35 +758,53 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         "\(source):\(eventID)"
     }
 
-    private func scheduleIncomingAlarm(
+    private func reportIncomingCall(
         key: String,
         caller: String,
-        action: String
+        hasVideo: Bool,
+        action: String,
+        notificationIdentifier: String
     ) {
-        alarmKit.schedule(
+        callKit.reportIncoming(
             key: key,
             caller: caller,
-            action: action
+            hasVideo: hasVideo,
+            action: action,
+            handoffNotificationIdentifier: notificationIdentifier
         )
     }
 
-    private func handleAlarmKitEvent(_ event: AlarmKitCoordinator.Event) {
+    private func handleCallKitEvent(_ event: CallKitCoordinator.Event) {
         switch event {
-        case .scheduled(let action, let key, let alarmID):
+        case .reported(let action, let key):
             recordAction(action)
-            log.info("\(action) AlarmKit alarm scheduled key=\(key) id=\(alarmID.uuidString)")
-        case .scheduleFailed(let key, let message):
-            recordError("AlarmKit schedule failed key=\(key): \(message)")
+            log.info("\(action) CallKit call reported key=\(key)")
+        case .reportFailed(let key, let caller, let notificationIdentifier, let message):
+            recordError("CallKit report failed key=\(key): \(message)")
             submitNotification(
-                identifier: Self.callNotificationIdentifier,
+                identifier: notificationIdentifier,
                 title: "微信来电",
-                body: "AlarmKit 不可用，点击“打开”进入微信",
-                action: "ALARMKIT_FALLBACK_NOTIFICATION",
+                body: "\(caller)，点按打开微信",
+                action: "CALLKIT_FALLBACK_NOTIFICATION",
                 opensWeChat: true
             )
-        case .stopped(let key):
-            recordAction("ALARMKIT_STOPPED")
-            log.info("AlarmKit alarm stopped key=\(key)")
+        case .answered(let key, let caller, let notificationIdentifier):
+            recordAction("CALLKIT_ANSWERED")
+            log.info("CallKit answered and ended key=\(key)")
+            submitNotification(
+                identifier: notificationIdentifier,
+                title: "打开微信",
+                body: "\(caller)，点按直接进入微信",
+                action: "CALLKIT_HANDOFF_NOTIFICATION",
+                sound: "none",
+                opensWeChat: true
+            )
+        case .declined(let key):
+            recordAction("CALLKIT_DECLINED")
+            log.info("CallKit declined key=\(key)")
+        case .reset:
+            recordAction("CALLKIT_RESET")
+            log.info("CallKit provider reset")
         }
     }
 
@@ -805,6 +831,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
 
         let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
         center.removeDeliveredNotifications(withIdentifiers: [identifier])
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         center.add(request) { [weak self] error in
@@ -828,9 +855,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
-        alarmKit.stopAll()
+        callKit.endAll(reason: .remoteEnded)
         recordAction("STOP_DEBUG")
-        log.info("Debug alarms and notifications removed")
+        log.info("Debug calls and notifications removed")
     }
 
     private func sendLogSnapshot(for request: HTTPRequest, on connection: NWConnection) {
@@ -902,8 +929,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "status",
                 "incremental_logs",
                 "message_notification",
-                "alarmkit_alert",
-                "alarm_open_action",
+                "callkit_incoming_call",
+                "callkit_custom_ringtone",
+                "foreground_notification_handoff",
                 "wechat_notification_action"
             ]
         ]
@@ -922,7 +950,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             uptimeSeconds = 0
         }
 
-        let activeAlarm = WPhoneAlarmStore.activeAlarm()
+        let callState = callKit.stateSnapshot
         return [
             "ok": true,
             "service": "wphone",
@@ -949,23 +977,29 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             "notifications": [
                 "authorization": state.notificationAuthorization,
                 "lastAction": jsonValue(state.lastAction),
-                "lastActionAt": jsonValue(state.lastActionAt.map { dateFormatter.string(from: $0) })
+                "lastActionAt": jsonValue(state.lastActionAt.map { dateFormatter.string(from: $0) }),
+                "callDebugMode": "callkit",
+                "callKit": true,
+                "activeCallCount": callState.count,
+                "activeCallKey": jsonValue(callState.key),
+                "caller": jsonValue(callState.caller),
+                "customRingtone": jsonValue(callKit.customRingtoneFileName),
+                "answerBehavior": "end-call-then-foreground-notification",
+                "openBehavior": "notification-opens-wphone-then-wechat"
             ],
             "alarmKit": [
-                "supported": true,
-                "authorization": alarmKit.extensionAuthorizationState,
-                "hostAuthorization": WPhoneAlarmStore.hostAuthorization() ?? "unknown",
-                "hostAuthorizationUpdatedAt": jsonValue(
-                    WPhoneAlarmStore.hostAuthorizationUpdatedAt().map { dateFormatter.string(from: $0) }
-                ),
-                "extensionAuthorization": alarmKit.extensionAuthorizationState,
-                "active": activeAlarm != nil,
-                "activeAlarmId": jsonValue(activeAlarm?.id.uuidString),
-                "activeCallKey": jsonValue(activeAlarm?.callKey),
-                "caller": jsonValue(activeAlarm?.caller),
-                "scheduledAt": jsonValue(activeAlarm.map { dateFormatter.string(from: $0.scheduledAt) }),
-                "triggerDelaySeconds": AlarmKitCoordinator.triggerDelaySeconds,
-                "openBehavior": "open-wphone-then-wechat"
+                "supported": false,
+                "authorization": "removed",
+                "hostAuthorization": "removed",
+                "hostAuthorizationUpdatedAt": NSNull(),
+                "extensionAuthorization": "removed",
+                "active": false,
+                "activeAlarmId": NSNull(),
+                "activeCallKey": NSNull(),
+                "caller": NSNull(),
+                "scheduledAt": NSNull(),
+                "triggerDelaySeconds": NSNull(),
+                "openBehavior": "removed"
             ],
             "events": [
                 "endpoint": WPhoneEventContract.endpoint,
@@ -1212,7 +1246,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
           <div class="stat"><span>隧道用途</span><strong id="purpose">-</strong></div>
           <div class="stat"><span>运行时间</span><strong id="uptime">-</strong></div>
           <div class="stat"><span>通知权限</span><strong id="notification">-</strong></div>
-          <div class="stat"><span>AlarmKit</span><strong id="alarmKit">-</strong></div>
+          <div class="stat"><span>CallKit</span><strong id="callKit">-</strong></div>
           <div class="stat"><span>请求总数</span><strong id="requests">-</strong></div>
           <div class="stat"><span>本次事件</span><strong id="eventsAccepted">-</strong></div>
           <div class="stat"><span>重复事件</span><strong id="eventsDuplicate">-</strong></div>
@@ -1227,7 +1261,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             </form>
             <form id="callForm">
               <label>来电名称<input id="caller" value="微信来电" maxlength="80"></label>
-              <button type="submit">AlarmKit 来电</button>
+              <button type="submit">CallKit 来电</button>
               <button id="stopButton" class="secondary" type="button">停止并清除</button>
             </form>
           </div>
@@ -1267,7 +1301,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             byId('purpose').textContent = data.tunnel.purpose;
             byId('uptime').textContent = duration(data.tunnel.uptimeSeconds);
             byId('notification').textContent = data.notifications.authorization;
-            byId('alarmKit').textContent = `App ${data.alarmKit.hostAuthorization} / 扩展 ${data.alarmKit.extensionAuthorization} · ${data.alarmKit.active ? '响铃中' : '空闲'}`;
+            const ringtone = data.notifications.customRingtone || '系统铃声';
+            byId('callKit').textContent = `${data.notifications.activeCallCount ? '响铃中' : '空闲'} · ${ringtone}`;
             byId('requests').textContent = String(data.listener.totalRequests);
             byId('eventsAccepted').textContent = String(data.events.acceptedCount);
             byId('eventsDuplicate').textContent = String(data.events.duplicateCount);
@@ -1317,7 +1352,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         byId('callForm').addEventListener('submit', event => {
           event.preventDefault();
           const query = new URLSearchParams({ caller: byId('caller').value });
-          runAction(`/api/debug/call?${query}`, 'AlarmKit 来电已提交');
+          runAction(`/api/debug/call?${query}`, 'CallKit 来电已提交');
         });
         byId('stopButton').addEventListener('click', () => runAction('/api/debug/stop', '调试通知已清除'));
         byId('clearView').addEventListener('click', () => { byId('logs').textContent = ''; });
@@ -1332,118 +1367,181 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     """#
 }
 
-private final class AlarmKitCoordinator {
-    static let triggerDelaySeconds = 1
+private final class CallKitCoordinator: NSObject, CXProviderDelegate {
+    static let preferredRingtoneFileName = "WPhoneRingtone.caf"
 
     enum Event {
-        case scheduled(action: String, key: String, alarmID: UUID)
-        case scheduleFailed(key: String, message: String)
-        case stopped(key: String)
+        case reported(action: String, key: String)
+        case reportFailed(
+            key: String,
+            caller: String,
+            notificationIdentifier: String,
+            message: String
+        )
+        case answered(key: String, caller: String, notificationIdentifier: String)
+        case declined(key: String)
+        case reset
     }
 
-    private let manager = AlarmManager.shared
+    private struct ActiveCall {
+        let key: String
+        let caller: String
+        let handoffNotificationIdentifier: String
+    }
+
+    private let provider: CXProvider
     private let eventHandler: (Event) -> Void
-    private let generationLock = NSLock()
-    private var generation = 0
+    private let lock = NSLock()
+    private var callsByUUID: [UUID: ActiveCall] = [:]
+    private var uuidByKey: [String: UUID] = [:]
+    let customRingtoneFileName: String?
 
     init(eventHandler: @escaping (Event) -> Void) {
-        self.eventHandler = eventHandler
-    }
+        let configuration = CXProviderConfiguration(localizedName: "手机信息通知")
+        configuration.supportsVideo = true
+        configuration.maximumCallGroups = 1
+        configuration.maximumCallsPerCallGroup = 1
+        configuration.supportedHandleTypes = [.generic]
+        configuration.includesCallsInRecents = false
 
-    var extensionAuthorizationState: String {
-        switch manager.authorizationState {
-        case .notDetermined: return "not-determined"
-        case .denied: return "denied"
-        case .authorized: return "authorized"
-        @unknown default: return "unknown"
+        if Bundle.main.url(forResource: "WPhoneRingtone", withExtension: "caf") != nil {
+            configuration.ringtoneSound = Self.preferredRingtoneFileName
+            customRingtoneFileName = Self.preferredRingtoneFileName
+        } else {
+            customRingtoneFileName = nil
         }
+
+        provider = CXProvider(configuration: configuration)
+        self.eventHandler = eventHandler
+        super.init()
+        provider.setDelegate(
+            self,
+            queue: DispatchQueue(label: "app.wephone.vpn.callkit", qos: .userInitiated)
+        )
     }
 
-    func schedule(key: String, caller: String, action: String) {
-        let operation = beginOperation()
-        cancelPersistedAlarm()
-        let id = UUID()
-        let configuration = WPhoneAlarmConfiguration.make(
-            id: id,
-            caller: caller,
-            callKey: key,
-            triggerDate: Date.now.addingTimeInterval(TimeInterval(Self.triggerDelaySeconds))
-        )
-        let hostAuthorization = WPhoneAlarmStore.hostAuthorization() ?? "unknown"
-        let extensionAuthorization = extensionAuthorizationState
-        SharedLogger.shared.debug(
-            "PacketTunnel AlarmKit schedule attempt key=\(key) id=\(id.uuidString) " +
-            "hostAuthorization=\(hostAuthorization) extensionAuthorization=\(extensionAuthorization)"
-        )
+    var stateSnapshot: (count: Int, key: String?, caller: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let call = callsByUUID.values.first else {
+            return (0, nil, nil)
+        }
+        return (callsByUUID.count, call.key, call.caller)
+    }
 
-        Task { [weak self, manager, eventHandler] in
-            do {
-                _ = try await manager.schedule(id: id, configuration: configuration)
-                guard self?.isCurrent(operation) == true else {
-                    try? manager.stop(id: id)
-                    try? manager.cancel(id: id)
-                    return
-                }
-                WPhoneAlarmStore.save(WPhoneAlarmRecord(
-                    id: id,
-                    callKey: key,
+    func reportIncoming(
+        key: String,
+        caller: String,
+        hasVideo: Bool,
+        action: String,
+        handoffNotificationIdentifier: String
+    ) {
+        endAll(reason: .unanswered)
+
+        let uuid = UUID()
+        let activeCall = ActiveCall(
+            key: key,
+            caller: caller,
+            handoffNotificationIdentifier: handoffNotificationIdentifier
+        )
+        lock.lock()
+        callsByUUID[uuid] = activeCall
+        uuidByKey[key] = uuid
+        lock.unlock()
+
+        let update = CXCallUpdate()
+        update.remoteHandle = CXHandle(type: .generic, value: caller)
+        update.localizedCallerName = caller
+        update.hasVideo = hasVideo
+        update.supportsDTMF = false
+        update.supportsGrouping = false
+        update.supportsHolding = false
+        update.supportsUngrouping = false
+
+        provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
+            guard let self else { return }
+            if let error {
+                _ = self.remove(uuid: uuid)
+                self.eventHandler(.reportFailed(
+                    key: key,
                     caller: caller,
-                    scheduledAt: Date()
+                    notificationIdentifier: handoffNotificationIdentifier,
+                    message: Self.describe(error)
                 ))
-                eventHandler(.scheduled(action: action, key: key, alarmID: id))
-            } catch {
-                if self?.isCurrent(operation) == true {
-                    let currentExtensionState = self?.extensionAuthorizationState ?? "unavailable"
-                    let details = WPhoneAlarmDiagnostics.describe(error)
-                    eventHandler(.scheduleFailed(
-                        key: key,
-                        message: "\(details); hostAuthorization=\(hostAuthorization); " +
-                            "extensionAuthorizationBefore=\(extensionAuthorization); " +
-                            "extensionAuthorizationAfter=\(currentExtensionState)"
-                    ))
-                }
+            } else if self.contains(uuid: uuid) {
+                self.eventHandler(.reported(action: action, key: key))
             }
         }
     }
 
     @discardableResult
-    func stop(key: String) -> Bool {
-        guard let record = WPhoneAlarmStore.activeAlarm(), record.callKey == key else {
-            return false
-        }
-        _ = beginOperation()
-        stop(record)
-        eventHandler(.stopped(key: key))
+    func end(key: String, reason: CXCallEndedReason) -> Bool {
+        lock.lock()
+        let uuid = uuidByKey[key]
+        lock.unlock()
+        guard let uuid, remove(uuid: uuid) != nil else { return false }
+        provider.reportCall(with: uuid, endedAt: Date(), reason: reason)
         return true
     }
 
-    func stopAll() {
-        _ = beginOperation()
-        cancelPersistedAlarm()
+    func endAll(reason: CXCallEndedReason) {
+        lock.lock()
+        let uuids = Array(callsByUUID.keys)
+        callsByUUID.removeAll(keepingCapacity: false)
+        uuidByKey.removeAll(keepingCapacity: false)
+        lock.unlock()
+
+        let endedAt = Date()
+        uuids.forEach { provider.reportCall(with: $0, endedAt: endedAt, reason: reason) }
     }
 
-    private func stop(_ record: WPhoneAlarmRecord) {
-        try? manager.stop(id: record.id)
-        try? manager.cancel(id: record.id)
-        WPhoneAlarmStore.clear(alarmID: record.id)
+    func providerDidReset(_ provider: CXProvider) {
+        lock.lock()
+        callsByUUID.removeAll(keepingCapacity: false)
+        uuidByKey.removeAll(keepingCapacity: false)
+        lock.unlock()
+        eventHandler(.reset)
     }
 
-    private func cancelPersistedAlarm() {
-        guard let record = WPhoneAlarmStore.activeAlarm() else { return }
-        stop(record)
+    func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
+        guard let call = remove(uuid: action.callUUID) else {
+            action.fail()
+            return
+        }
+        action.fulfill()
+        provider.reportCall(with: action.callUUID, endedAt: Date(), reason: .remoteEnded)
+        eventHandler(.answered(
+            key: call.key,
+            caller: call.caller,
+            notificationIdentifier: call.handoffNotificationIdentifier
+        ))
     }
 
-    private func beginOperation() -> Int {
-        generationLock.lock()
-        generation += 1
-        let value = generation
-        generationLock.unlock()
-        return value
+    func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
+        guard let call = remove(uuid: action.callUUID) else {
+            action.fulfill()
+            return
+        }
+        action.fulfill()
+        eventHandler(.declined(key: call.key))
     }
 
-    private func isCurrent(_ operation: Int) -> Bool {
-        generationLock.lock()
-        defer { generationLock.unlock() }
-        return generation == operation
+    private func contains(uuid: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return callsByUUID[uuid] != nil
+    }
+
+    private func remove(uuid: UUID) -> ActiveCall? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let call = callsByUUID.removeValue(forKey: uuid) else { return nil }
+        uuidByKey.removeValue(forKey: call.key)
+        return call
+    }
+
+    private static func describe(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "domain=\(nsError.domain); code=\(nsError.code); description=\(nsError.localizedDescription)"
     }
 }

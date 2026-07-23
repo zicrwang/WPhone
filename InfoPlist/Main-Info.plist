@@ -22,8 +22,6 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>用于接收局域网设备发送的通知事件，并提供运行状态和调试日志。</string>
-	<key>NSAlarmKitUsageDescription</key>
-	<string>用于在收到局域网来电信号时播放系统闹钟提醒。</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_wphone-debug._tcp</string>
