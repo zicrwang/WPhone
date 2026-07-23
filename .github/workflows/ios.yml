@@ -23,16 +23,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Compile without signing
+      - name: Build device app without signing
         run: |
           set -uo pipefail
           set +e
           xcodebuild \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
@@ -49,6 +50,31 @@ jobs:
             ' "$RUNNER_TEMP/xcodebuild.log"
           fi
           exit "$build_status"
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$RUNNER_TEMP/DerivedData/Build/Products/$CONFIGURATION-iphoneos/WPhone.app"
+          EXTENSION_PATH="$APP_PATH/PlugIns/PacketTunnel.appex"
+
+          test -d "$APP_PATH"
+          test -d "$EXTENSION_PATH"
+
+          PACKAGE_PATH="$RUNNER_TEMP/unsigned-ipa"
+          mkdir -p "$PACKAGE_PATH/Payload"
+          ditto "$APP_PATH" "$PACKAGE_PATH/Payload/WPhone.app"
+          (
+            cd "$PACKAGE_PATH"
+            /usr/bin/zip -qry "$RUNNER_TEMP/WPhone-unsigned.ipa" Payload
+          )
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: WPhone-unsigned-ipa
+          path: ${{ runner.temp }}/WPhone-unsigned.ipa
+          if-no-files-found: error
 
   archive:
     needs: compile

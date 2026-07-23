@@ -19,7 +19,11 @@
 
 ## GitHub Actions
 
-每次推送都会执行无需签名的 Simulator 编译，用于校验主 App 和 Extension。进入 GitHub 仓库的 **Actions > Build iOS app > Run workflow** 后，会使用以下 Secrets 执行真机 Ad Hoc 签名并上传 IPA。产物名为 `WPhone-ipa`：
+每次推送都会执行无需签名的真机 Release 编译，确认主 App 已嵌入 `PacketTunnel.appex`，并上传 `WPhone-unsigned-ipa` artifact。下载其中的 `WPhone-unsigned.ipa` 后，可以交给支持 App Extension 和相应 entitlement 的手机端签名工具处理；这条流程不需要 GitHub Secrets。
+
+未签名 IPA 只包含完整程序结构，不会绕过 iOS 的签名校验。签名工具仍需为主 App 和 `PacketTunnel.appex` 分别使用匹配各自 Bundle ID、设备 UDID、App Group 和 Network Extension entitlement 的描述文件。只有主 App profile 时，通常可以安装主界面，但 VPN Extension 无法正常安装或启动。
+
+进入 GitHub 仓库的 **Actions > Build iOS app > Run workflow** 后，工作流还会尝试使用以下 Secrets 执行完整的真机 Ad Hoc 签名并上传 IPA。签名产物名为 `WPhone-ipa`：
 
 - `APPLE_TEAM_ID`：`84V4S488EQ`
 - `IOS_P12_BASE64`：P12 文件的 Base64 内容
