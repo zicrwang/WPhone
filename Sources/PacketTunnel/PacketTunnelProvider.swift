@@ -21,12 +21,20 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         var lastAction: String?
         var lastActionAt: Date?
         var lastError: String?
+        var acceptedEventCount = 0
+        var duplicateEventCount = 0
+        var lastEventID: String?
+        var lastEventSource: String?
+        var lastEventType: String?
+        var lastEventEffect: String?
     }
 
     private struct HTTPRequest {
         let method: String
         let path: String
         let queryItems: [URLQueryItem]
+        let headers: [String: String]
+        let body: Data
 
         func queryValue(named name: String, maximumCharacters: Int) -> String? {
             guard let value = queryItems.first(where: { $0.name == name })?.value else {
@@ -38,11 +46,18 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
+    private enum RequestFraming {
+        case incomplete
+        case complete(Int)
+        case tooLarge
+    }
+
     private let log = SharedLogger.shared
     private let listenerQueue = DispatchQueue(label: "app.wephone.vpn.listener")
     private let connectionLock = NSLock()
     private let stateLock = NSLock()
     private let dateFormatter = ISO8601DateFormatter()
+    private lazy var eventIdempotencyStore = WPhoneEventIdempotencyStore(log: log)
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var requestBuffers: [ObjectIdentifier: Data] = [:]
@@ -274,13 +289,34 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 self.connectionLock.unlock()
 
                 guard size <= Self.maximumRequestBytes else {
-                    self.sendText(status: 413, body: "request too large\n", on: connection)
+                    self.sendAPIError(
+                        status: 413,
+                        code: "request_too_large",
+                        message: "The complete HTTP request exceeds 16384 bytes.",
+                        on: connection
+                    )
                     return
                 }
 
-                if let request, self.isCompleteRequest(request) || isComplete {
-                    self.process(request, on: connection)
-                    return
+                if let request {
+                    switch self.requestFraming(for: request) {
+                    case .complete(let length):
+                        self.process(Data(request.prefix(length)), on: connection)
+                        return
+                    case .tooLarge:
+                        self.sendAPIError(
+                            status: 413,
+                            code: "request_too_large",
+                            message: "The complete HTTP request exceeds 16384 bytes.",
+                            on: connection
+                        )
+                        return
+                    case .incomplete:
+                        if isComplete {
+                            self.process(request, on: connection)
+                            return
+                        }
+                    }
                 }
             }
 
@@ -292,28 +328,67 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
-    private func isCompleteRequest(_ data: Data) -> Bool {
-        guard let text = String(data: data, encoding: .utf8) else { return false }
-        if text.contains("\r\n\r\n") { return true }
-        let command = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        return command == "START_RING" || command == "STOP_RING"
+    private func requestFraming(for data: Data) -> RequestFraming {
+        if let text = String(data: data, encoding: .utf8) {
+            let command = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if command == "START_RING" || command == "STOP_RING" {
+                return .complete(data.count)
+            }
+        }
+
+        let separator = Data([13, 10, 13, 10])
+        guard let separatorRange = data.range(of: separator) else { return .incomplete }
+        let bodyStart = separatorRange.upperBound
+        guard let headerText = String(
+            data: Data(data[..<separatorRange.lowerBound]),
+            encoding: .utf8
+        ) else {
+            return .complete(bodyStart)
+        }
+
+        var contentLength = 0
+        var foundContentLength = false
+        for line in headerText.components(separatedBy: "\r\n").dropFirst() {
+            guard let colon = line.firstIndex(of: ":") else { return .complete(bodyStart) }
+            let name = String(line[..<colon]).trimmingCharacters(in: .whitespaces).lowercased()
+            guard name == "content-length" else { continue }
+            guard !foundContentLength,
+                  let parsed = Int(
+                    String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+                  ),
+                  parsed >= 0 else {
+                return .complete(bodyStart)
+            }
+            foundContentLength = true
+            contentLength = parsed
+        }
+
+        guard contentLength <= Self.maximumRequestBytes - bodyStart else { return .tooLarge }
+        let totalLength = bodyStart + contentLength
+        return data.count >= totalLength ? .complete(totalLength) : .incomplete
     }
 
     private func process(_ data: Data, on connection: NWConnection) {
-        guard let text = String(data: data, encoding: .utf8) else {
-            sendJSON(status: 400, object: ["ok": false, "error": "invalid_utf8"], on: connection)
-            return
+        if let text = String(data: data, encoding: .utf8) {
+            let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if normalized == "START_RING" || normalized == "STOP_RING" {
+                handleLegacyCommand(normalized)
+                sendText(
+                    status: 200,
+                    body: normalized == "START_RING" ? "STARTED\n" : "STOPPED\n",
+                    on: connection
+                )
+                return
+            }
         }
 
-        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        if normalized == "START_RING" || normalized == "STOP_RING" {
-            handleLegacyCommand(normalized)
-            sendText(status: 200, body: normalized == "START_RING" ? "STARTED\n" : "STOPPED\n", on: connection)
-            return
-        }
-
-        guard let request = parseHTTPRequest(text) else {
-            sendJSON(status: 400, object: ["ok": false, "error": "invalid_http_request"], on: connection)
+        guard let request = parseHTTPRequest(data) else {
+            sendAPIError(
+                status: 400,
+                code: "invalid_http_request",
+                message: "The HTTP request framing or headers are invalid.",
+                on: connection
+            )
             return
         }
         recordRequest(request)
@@ -329,17 +404,29 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         case ("GET", "/health"):
             sendJSON(
                 status: 200,
-                object: ["ok": true, "service": "wphone-debug", "version": 1],
+                object: [
+                    "ok": true,
+                    "service": "wphone",
+                    "apiVersion": WPhoneEventContract.specVersion,
+                    "events": WPhoneEventContract.endpoint
+                ],
                 on: connection
             )
-        case ("GET", "/api"), ("GET", "/.well-known/wphone-debug"):
+        case ("GET", "/api"), ("GET", "/.well-known/wphone"), ("GET", "/.well-known/wphone-debug"):
             sendJSON(status: 200, object: apiDiscoveryPayload(), on: connection)
         case ("GET", "/openapi.json"):
-            sendJSON(status: 200, object: openAPIPayload(), on: connection)
+            send(
+                status: 200,
+                contentType: "application/json; charset=utf-8",
+                body: Data(WPhoneEventContract.openAPIJSON.utf8),
+                on: connection
+            )
         case ("GET", "/api/status"):
             sendJSON(status: 200, object: statusPayload(), on: connection)
         case ("GET", "/api/logs"):
             sendLogSnapshot(for: request, on: connection)
+        case ("POST", let path) where path == WPhoneEventContract.endpoint:
+            handleEventRequest(request, on: connection)
         case ("POST", "/api/debug/message"):
             let title = request.queryValue(named: "title", maximumCharacters: 80) ?? "信息弹出调试"
             let body = request.queryValue(named: "body", maximumCharacters: 240) ?? "WPhone 局域网调试消息"
@@ -375,14 +462,23 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         case ("OPTIONS", _):
             send(status: 204, contentType: "text/plain", body: Data(), on: connection)
         default:
-            sendJSON(status: 404, object: ["ok": false, "error": "route_not_found"], on: connection)
+            sendAPIError(
+                status: 404,
+                code: "route_not_found",
+                message: "No route matches this method and path.",
+                on: connection
+            )
         }
     }
 
-    private func parseHTTPRequest(_ text: String) -> HTTPRequest? {
-        guard let requestLine = text.split(whereSeparator: { $0.isNewline }).first else {
+    private func parseHTTPRequest(_ data: Data) -> HTTPRequest? {
+        let separator = Data([13, 10, 13, 10])
+        guard let separatorRange = data.range(of: separator),
+              let headerText = String(data: Data(data[..<separatorRange.lowerBound]), encoding: .utf8) else {
             return nil
         }
+        let lines = headerText.components(separatedBy: "\r\n")
+        guard let requestLine = lines.first else { return nil }
         let components = requestLine.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
         guard components.count == 3 else { return nil }
 
@@ -392,8 +488,222 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
               let urlComponents = URLComponents(string: target) else {
             return nil
         }
+
+        var headers: [String: String] = [:]
+        for line in lines.dropFirst() {
+            guard !line.isEmpty, let colon = line.firstIndex(of: ":") else { return nil }
+            let name = String(line[..<colon]).trimmingCharacters(in: .whitespaces).lowercased()
+            let value = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty, headers[name] == nil else { return nil }
+            headers[name] = value
+        }
+        guard headers["transfer-encoding"] == nil else { return nil }
+
+        let contentLength: Int
+        if let rawContentLength = headers["content-length"] {
+            guard let parsed = Int(rawContentLength), parsed >= 0 else { return nil }
+            contentLength = parsed
+        } else {
+            contentLength = 0
+        }
+        let bodyStart = separatorRange.upperBound
+        guard bodyStart + contentLength <= data.count else {
+            return nil
+        }
+
         let path = urlComponents.path.isEmpty ? "/" : urlComponents.path
-        return HTTPRequest(method: method, path: path, queryItems: urlComponents.queryItems ?? [])
+        let body = Data(data[bodyStart..<(bodyStart + contentLength)])
+        return HTTPRequest(
+            method: method,
+            path: path,
+            queryItems: urlComponents.queryItems ?? [],
+            headers: headers,
+            body: body
+        )
+    }
+
+    private func handleEventRequest(_ request: HTTPRequest, on connection: NWConnection) {
+        let rawContentType = request.headers["content-type"] ?? ""
+        let firstMediaType = rawContentType
+            .split(separator: ";", maxSplits: 1)
+            .first
+            .map(String.init) ?? ""
+        let mediaType = firstMediaType
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard mediaType == "application/json" else {
+            sendAPIError(
+                status: 415,
+                code: "unsupported_media_type",
+                message: "Content-Type must be application/json.",
+                field: "Content-Type",
+                on: connection
+            )
+            return
+        }
+
+        do {
+            let event = try WPhoneEventContract.decode(request.body)
+            let digest = WPhoneEventContract.requestDigest(request.body)
+            let effect = WPhoneEventContract.effect(for: event.type)
+            let decision = eventIdempotencyStore.evaluate(
+                key: event.idempotencyKey,
+                requestDigest: digest,
+                effect: effect
+            )
+
+            switch decision {
+            case .accepted(let record):
+                apply(event)
+                recordEvent(event, effect: effect, duplicate: false)
+                sendJSON(
+                    status: 202,
+                    object: eventResponse(
+                        event: event,
+                        status: "accepted",
+                        duplicate: false,
+                        effect: effect,
+                        firstAcceptedAt: record.firstAcceptedAtMilliseconds
+                    ),
+                    on: connection
+                )
+            case .duplicate(let record):
+                recordEvent(event, effect: record.effect, duplicate: true)
+                sendJSON(
+                    status: 200,
+                    object: eventResponse(
+                        event: event,
+                        status: "duplicate",
+                        duplicate: true,
+                        effect: record.effect,
+                        firstAcceptedAt: record.firstAcceptedAtMilliseconds
+                    ),
+                    on: connection
+                )
+            case .conflict:
+                log.error("Idempotency conflict source=\(event.source) id=\(event.id)")
+                sendAPIError(
+                    status: 409,
+                    code: "idempotency_conflict",
+                    message: "This source and id were already used with a different request body.",
+                    field: "id",
+                    on: connection
+                )
+            }
+        } catch let error as WPhoneEventAPIError {
+            log.debug("Event rejected code=\(error.code) field=\(error.field ?? "none")")
+            sendAPIError(
+                status: error.httpStatus,
+                code: error.code,
+                message: error.message,
+                field: error.field,
+                on: connection
+            )
+        } catch {
+            recordError("Event processing failed: \(error.localizedDescription)")
+            sendAPIError(
+                status: 500,
+                code: "internal_error",
+                message: "The event could not be processed.",
+                on: connection
+            )
+        }
+    }
+
+    private func apply(_ event: WPhoneEvent) {
+        let identifier = WPhoneEventContract.notificationIdentifier(
+            source: event.source,
+            eventID: event.id
+        )
+
+        switch event.type {
+        case "message.received":
+            let title = event.payloadString("title")
+                ?? event.payloadString("sender")
+                ?? "新消息"
+            submitNotification(
+                identifier: identifier,
+                title: title,
+                body: event.payloadString("body") ?? "",
+                action: "EVENT_MESSAGE_RECEIVED",
+                priority: event.priority,
+                sound: event.sound,
+                threadIdentifier: "app.wephone.vpn.events.\(event.source)"
+            )
+        case "call.incoming":
+            submitNotification(
+                identifier: identifier,
+                title: event.payloadString("title") ?? "来电通知",
+                body: event.payloadString("caller") ?? "未知来电",
+                action: "EVENT_CALL_INCOMING",
+                priority: event.priority,
+                sound: event.sound,
+                threadIdentifier: "app.wephone.vpn.calls.\(event.source)"
+            )
+        case "call.ended", "notification.dismiss":
+            guard let targetID = event.payloadString("targetId") else { return }
+            let targetIdentifier = WPhoneEventContract.notificationIdentifier(
+                source: event.source,
+                eventID: targetID
+            )
+            let center = UNUserNotificationCenter.current()
+            center.removePendingNotificationRequests(withIdentifiers: [targetIdentifier])
+            center.removeDeliveredNotifications(withIdentifiers: [targetIdentifier])
+            recordAction("EVENT_NOTIFICATION_REMOVED")
+            log.info("Event notification removed source=\(event.source) targetId=\(targetID)")
+        case "notification.show":
+            submitNotification(
+                identifier: identifier,
+                title: event.payloadString("title") ?? "WPhone 通知",
+                body: event.payloadString("body") ?? "",
+                action: "EVENT_NOTIFICATION_SHOW",
+                priority: event.priority,
+                sound: event.sound,
+                threadIdentifier: "app.wephone.vpn.events.\(event.source)"
+            )
+        default:
+            recordAction("EVENT_LOGGED_ONLY")
+            log.info("Custom event logged source=\(event.source) type=\(event.type) id=\(event.id)")
+        }
+    }
+
+    private func eventResponse(
+        event: WPhoneEvent,
+        status: String,
+        duplicate: Bool,
+        effect: String,
+        firstAcceptedAt: Int64
+    ) -> [String: Any] {
+        [
+            "ok": true,
+            "apiVersion": WPhoneEventContract.specVersion,
+            "status": status,
+            "duplicate": duplicate,
+            "effect": effect,
+            "firstAcceptedAt": firstAcceptedAt,
+            "event": [
+                "id": event.id,
+                "source": event.source,
+                "type": event.type
+            ]
+        ]
+    }
+
+    private func recordEvent(_ event: WPhoneEvent, effect: String, duplicate: Bool) {
+        mutateState {
+            if duplicate {
+                $0.duplicateEventCount += 1
+            } else {
+                $0.acceptedEventCount += 1
+            }
+            $0.lastEventID = event.id
+            $0.lastEventSource = event.source
+            $0.lastEventType = event.type
+            $0.lastEventEffect = effect
+        }
+        log.info(
+            "Event \(duplicate ? "duplicate" : "accepted") source=\(event.source) type=\(event.type) id=\(event.id) effect=\(effect)"
+        )
     }
 
     private func handleLegacyCommand(_ request: String) {
@@ -420,14 +730,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         identifier: String,
         title: String,
         body: String,
-        action: String
+        action: String,
+        priority: String = "timeSensitive",
+        sound: String = "default",
+        threadIdentifier: String = "app.wephone.vpn.debug"
     ) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = .default
-        content.threadIdentifier = "app.wephone.vpn.debug"
-        if #available(iOS 15.0, *) {
+        content.sound = sound == "none" ? nil : .default
+        content.threadIdentifier = threadIdentifier
+        if #available(iOS 15.0, *), priority == "timeSensitive" {
             content.interruptionLevel = .timeSensitive
         }
 
@@ -464,7 +777,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let cursor: UInt64?
         if let cursorText {
             guard let parsed = UInt64(cursorText) else {
-                sendJSON(status: 400, object: ["ok": false, "error": "invalid_cursor"], on: connection)
+                sendAPIError(
+                    status: 400,
+                    code: "invalid_cursor",
+                    message: "cursor must be an unsigned integer.",
+                    field: "cursor",
+                    on: connection
+                )
                 return
             }
             cursor = parsed
@@ -498,14 +817,32 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private func apiDiscoveryPayload() -> [String: Any] {
         [
-            "name": "WPhone LAN Debug API",
+            "name": "WPhone LAN API",
             "version": 1,
             "openapi": "/openapi.json",
             "health": "/health",
             "status": "/api/status",
             "logs": "/api/logs",
+            "events": WPhoneEventContract.endpoint,
             "accessPolicy": "private-lan-over-wifi",
-            "capabilities": ["status", "incremental_logs", "message_notification", "call_style_notification"]
+            "authentication": "none",
+            "supportedEventTypes": WPhoneEventContract.supportedEventTypes,
+            "customEventTypePattern": "custom.<vendor>.<name>",
+            "extensionKeyPattern": "reverse-domain-name",
+            "idempotency": [
+                "scope": "source+id",
+                "retentionHours": 24,
+                "maximumRecords": 512,
+                "comparison": "sha256-of-exact-json-body"
+            ],
+            "capabilities": [
+                "versioned_events",
+                "persistent_idempotency",
+                "status",
+                "incremental_logs",
+                "message_notification",
+                "call_style_notification"
+            ]
         ]
     }
 
@@ -524,7 +861,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
         return [
             "ok": true,
-            "service": "wphone-debug",
+            "service": "wphone",
             "version": 1,
             "tunnel": [
                 "purpose": "keepalive-only",
@@ -552,73 +889,19 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "callDebugMode": "local-notification",
                 "callKit": false
             ],
-            "lastError": jsonValue(state.lastError)
-        ]
-    }
-
-    private func openAPIPayload() -> [String: Any] {
-        let successResponse: [String: Any] = [
-            "description": "Successful JSON response",
-            "content": ["application/json": ["schema": ["type": "object"]]]
-        ]
-        let acceptedResponse: [String: Any] = [
-            "description": "Notification request accepted",
-            "content": ["application/json": ["schema": ["type": "object"]]]
-        ]
-
-        return [
-            "openapi": "3.0.3",
-            "info": [
-                "title": "WPhone LAN Debug API",
-                "version": "1.0.0",
-                "description": "Private-LAN debug controls for WPhone"
+            "events": [
+                "endpoint": WPhoneEventContract.endpoint,
+                "specVersion": WPhoneEventContract.specVersion,
+                "supportedTypes": WPhoneEventContract.supportedEventTypes,
+                "idempotencyRecords": eventIdempotencyStore.count,
+                "acceptedCount": state.acceptedEventCount,
+                "duplicateCount": state.duplicateEventCount,
+                "lastEventId": jsonValue(state.lastEventID),
+                "lastEventSource": jsonValue(state.lastEventSource),
+                "lastEventType": jsonValue(state.lastEventType),
+                "lastEventEffect": jsonValue(state.lastEventEffect)
             ],
-            "servers": [["url": "/"]],
-            "paths": [
-                "/health": [
-                    "get": ["operationId": "getHealth", "responses": ["200": successResponse]]
-                ],
-                "/api/status": [
-                    "get": ["operationId": "getStatus", "responses": ["200": successResponse]]
-                ],
-                "/api/logs": [
-                    "get": [
-                        "operationId": "getIncrementalLogs",
-                        "parameters": [[
-                            "name": "cursor",
-                            "in": "query",
-                            "required": false,
-                            "schema": ["type": "integer", "format": "int64", "minimum": 0]
-                        ]],
-                        "responses": ["200": successResponse]
-                    ]
-                ],
-                "/api/debug/message": [
-                    "post": [
-                        "operationId": "showDebugMessage",
-                        "parameters": [
-                            ["name": "title", "in": "query", "schema": ["type": "string", "maxLength": 80]],
-                            ["name": "body", "in": "query", "schema": ["type": "string", "maxLength": 240]]
-                        ],
-                        "responses": ["202": acceptedResponse]
-                    ]
-                ],
-                "/api/debug/call": [
-                    "post": [
-                        "operationId": "showDebugCallNotification",
-                        "description": "Shows a call-style local notification; it is not a CallKit incoming call.",
-                        "parameters": [[
-                            "name": "caller",
-                            "in": "query",
-                            "schema": ["type": "string", "maxLength": 80]
-                        ]],
-                        "responses": ["202": acceptedResponse]
-                    ]
-                ],
-                "/api/debug/stop": [
-                    "post": ["operationId": "stopDebugNotifications", "responses": ["200": successResponse]]
-                ]
-            ]
+            "lastError": jsonValue(state.lastError)
         ]
     }
 
@@ -687,6 +970,20 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
+    private func sendAPIError(
+        status: Int,
+        code: String,
+        message: String,
+        field: String? = nil,
+        on connection: NWConnection
+    ) {
+        var error: [String: Any] = ["code": code, "message": message]
+        if let field {
+            error["field"] = field
+        }
+        sendJSON(status: status, object: ["ok": false, "error": error], on: connection)
+    }
+
     private func sendText(status: Int, body: String, on connection: NWConnection) {
         send(
             status: status,
@@ -708,8 +1005,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         case 202: reason = "Accepted"
         case 204: reason = "No Content"
         case 400: reason = "Bad Request"
+        case 409: reason = "Conflict"
         case 404: reason = "Not Found"
         case 413: reason = "Payload Too Large"
+        case 415: reason = "Unsupported Media Type"
+        case 422: reason = "Unprocessable Content"
         default: reason = "Internal Server Error"
         }
 
@@ -808,7 +1108,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         .dot.ready { background: #18864b; }
         main { padding: 24px 0 36px; }
         section { padding: 20px 0; border-bottom: 1px solid #d9dee2; }
-        .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+        .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
         .stat { background: #fff; border: 1px solid #d9dee2; border-radius: 6px; padding: 14px; min-height: 82px; }
         .stat span { display: block; color: #65727a; font-size: 12px; margin-bottom: 8px; }
         .stat strong { display: block; font-size: 16px; overflow-wrap: anywhere; }
@@ -835,6 +1135,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
           <div class="stat"><span>运行时间</span><strong id="uptime">-</strong></div>
           <div class="stat"><span>通知权限</span><strong id="notification">-</strong></div>
           <div class="stat"><span>请求总数</span><strong id="requests">-</strong></div>
+          <div class="stat"><span>本次事件</span><strong id="eventsAccepted">-</strong></div>
+          <div class="stat"><span>重复事件</span><strong id="eventsDuplicate">-</strong></div>
         </section>
         <section>
           <h2>弹出调试</h2>
@@ -856,7 +1158,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
           <div class="toolbar"><h2>实时日志</h2><button id="clearView" class="secondary" type="button">清空视图</button></div>
           <pre id="logs">正在读取 debug.log...</pre>
         </section>
-        <footer><span id="lastAction">最近操作：-</span><span><a href="/openapi.json">OpenAPI</a> · <a href="/.well-known/wphone-debug">Discovery</a></span></footer>
+        <footer><span id="lastAction">最近操作：-</span><span><a href="/openapi.json">OpenAPI</a> · <a href="/.well-known/wphone">Discovery</a></span></footer>
       </main>
       <script>
         const byId = id => document.getElementById(id);
@@ -887,6 +1189,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             byId('uptime').textContent = duration(data.tunnel.uptimeSeconds);
             byId('notification').textContent = data.notifications.authorization;
             byId('requests').textContent = String(data.listener.totalRequests);
+            byId('eventsAccepted').textContent = String(data.events.acceptedCount);
+            byId('eventsDuplicate').textContent = String(data.events.duplicateCount);
             byId('lastAction').textContent = `最近操作：${data.notifications.lastAction || '-'}`;
           } catch (error) {
             byId('dot').className = 'dot';

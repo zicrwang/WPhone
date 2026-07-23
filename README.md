@@ -34,12 +34,21 @@ http://<手机的局域网IP>:8080/
 
 网页包含实时隧道/监听/通知状态、信息弹出调试、电话样式通知调试和增量 `debug.log` 输出。日志按游标读取，每次最多 64 KB，不会在每次刷新时加载完整日志。服务还通过 Bonjour 发布 `_wphone-debug._tcp`。
 
-## 调试 API
+## 局域网 API
+
+正式事件协议由 WPhone 定义，规范见 [WPhone Event API v1](Docs/WPhone-API-v1.md)。生产发送端使用：
+
+```text
+POST /api/v1/events
+Content-Type: application/json
+```
+
+该接口包含版本化事件信封、类型校验、跨扩展重启的 App Group 幂等记录和统一错误响应。`/api/debug/*` 继续只用于人工调试，不作为 Tasker 的正式通知入口。
 
 供 Codex、脚本或其他同网段工具使用的机器可读入口：
 
 ```text
-GET  /.well-known/wphone-debug
+GET  /.well-known/wphone
 GET  /openapi.json
 GET  /api/status
 GET  /api/logs?cursor=<上次返回的cursor>
@@ -51,9 +60,11 @@ POST /api/debug/stop
 让同一内网电脑上的 Codex 先读取下面的发现接口，即可按 OpenAPI 路由调用：
 
 ```bash
-curl http://<手机的局域网IP>:8080/.well-known/wphone-debug
+curl http://<手机的局域网IP>:8080/.well-known/wphone
 curl http://<手机的局域网IP>:8080/openapi.json
 ```
+
+旧的 `/.well-known/wphone-debug` 发现地址继续保留兼容。
 
 接口没有账号或令牌认证，同一私网内的其他设备也能读取日志和触发通知；只应在可信局域网中开启 VPN。Codex 无法仅凭项目代码自动知道手机当前 IP，需要提供 IP，或先通过 `_wphone-debug._tcp` 的 mDNS/Bonjour 记录发现服务。
 
