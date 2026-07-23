@@ -1,0 +1,10 @@
+# Signing material and local Xcode state must never enter the repository.
+*.p12
+*.mobileprovision
+*.cer
+*.provisionprofile
+*.key
+*.log
+DerivedData/
+build/
+xcuserdata/

@@ -1,0 +1,161 @@
+name: Build iOS app
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PROJECT: EmptyTunnel.xcodeproj
+  SCHEME: EmptyTunnel
+  CONFIGURATION: Release
+  APP_BUNDLE_ID: com.example.emptytunnel
+  EXTENSION_BUNDLE_ID: com.example.emptytunnel.PacketTunnel
+
+jobs:
+  archive:
+    runs-on: macos-latest
+    env:
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
+      P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+      APP_PROFILE_BASE64: ${{ secrets.IOS_APP_MOBILEPROVISION_BASE64 }}
+      EXT_PROFILE_BASE64: ${{ secrets.IOS_EXTENSION_MOBILEPROVISION_BASE64 }}
+      SIGNING_CERTIFICATE: ${{ secrets.APPLE_SIGNING_CERTIFICATE }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate signing inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in TEAM_ID P12_BASE64 P12_PASSWORD APP_PROFILE_BASE64 EXT_PROFILE_BASE64; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required signing input: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Import signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/empty-tunnel-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          printf '%s' "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/signing.p12" \
+            -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Install provisioning profiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          install_profile() {
+            local encoded="$1"
+            local label="$2"
+            local path="$RUNNER_TEMP/$label.mobileprovision"
+            local plist="$RUNNER_TEMP/$label.plist"
+            printf '%s' "$encoded" | base64 --decode > "$path"
+            security cms -D -i "$path" > "$plist"
+            local uuid
+            uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$plist")
+            cp "$path" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+            echo "$label profile: $uuid"
+          }
+
+          install_profile "$APP_PROFILE_BASE64" app
+          install_profile "$EXT_PROFILE_BASE64" extension
+
+      - name: Read profile names
+        shell: bash
+        run: |
+          set -euo pipefail
+          security cms -D -i "$RUNNER_TEMP/app.mobileprovision" > "$RUNNER_TEMP/app.plist"
+          security cms -D -i "$RUNNER_TEMP/extension.mobileprovision" > "$RUNNER_TEMP/extension.plist"
+          echo "APP_PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/app.plist")" >> "$GITHUB_ENV"
+          echo "EXT_PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/extension.plist")" >> "$GITHUB_ENV"
+
+      - name: Validate profile bundle identifiers
+        shell: bash
+        run: |
+          set -euo pipefail
+          validate_profile() {
+            local label="$1"
+            local plist="$2"
+            local bundle_id="$3"
+            local app_id
+            app_id=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$plist")
+            case "$app_id" in
+              "$TEAM_ID.$bundle_id"|"$TEAM_ID".\*) ;;
+              *)
+                echo "$label profile application-identifier ($app_id) does not match $bundle_id" >&2
+                exit 1
+                ;;
+            esac
+          }
+          validate_profile app "$RUNNER_TEMP/app.plist" "$APP_BUNDLE_ID"
+          validate_profile extension "$RUNNER_TEMP/extension.plist" "$EXTENSION_BUNDLE_ID"
+
+      - name: Archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/EmptyTunnel.xcarchive" \
+            clean archive \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_IDENTITY="${SIGNING_CERTIFICATE:-Apple Distribution}" \
+            APP_PROVISIONING_PROFILE_SPECIFIER="$APP_PROFILE_NAME" \
+            EXT_PROVISIONING_PROFILE_SPECIFIER="$EXT_PROFILE_NAME"
+
+      - name: Export IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>ad-hoc</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>compileBitcode</key><false/>
+            <key>provisioningProfiles</key><dict>
+              <key>$APP_BUNDLE_ID</key><string>$APP_PROFILE_NAME</string>
+              <key>$EXTENSION_BUNDLE_ID</key><string>$EXT_PROFILE_NAME</string>
+            </dict>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/EmptyTunnel.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmptyTunnel-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          if-no-files-found: error
