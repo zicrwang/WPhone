@@ -35,6 +35,14 @@ python3 Relay/wphone_relay.py
 curl http://192.168.2.99:18080/health
 ```
 
+Armbian 上可使用仓库内的 systemd 单元使中继随开机启动：
+
+```bash
+cp Relay/wphone-relay.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now wphone-relay.service
+```
+
 健康响应中的 `providers` 为 `1` 时，表示 Packet Tunnel 已连接中继。iPhone 通过出站长连接注册，iPhone 的 DHCP 地址发生变化后会自动重连，发送端不需要知道新的 iPhone IP。
 
 VPN 连接成功后，在同一局域网的电脑访问：

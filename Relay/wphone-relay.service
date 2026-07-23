@@ -1,0 +1,15 @@
+[Unit]
+Description=WPhone VPN event relay
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/EmptyTunnelSample
+ExecStart=/usr/bin/python3 /root/EmptyTunnelSample/Relay/wphone_relay.py --http-port 18080 --provider-port 18081
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
