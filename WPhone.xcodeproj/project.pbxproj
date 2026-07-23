@@ -16,6 +16,9 @@
 		A10000000000000000000007 /* WPhoneEventAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* WPhoneEventAPI.swift */; };
 		A10000000000000000000008 /* NotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* NotificationRouting.swift */; };
 		A10000000000000000000009 /* NotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* NotificationRouting.swift */; };
+		A1000000000000000000000A /* HostCallKitCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* HostCallKitCoordinator.swift */; };
+		A1000000000000000000000B /* CallKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* CallKitBridge.swift */; };
+		A1000000000000000000000C /* CallKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* CallKitBridge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -55,6 +58,8 @@
 		A20000000000000000000010 /* WPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000011 /* WPhoneEventAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WPhoneEventAPI.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* NotificationRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRouting.swift; sourceTree = "<group>"; };
+		A20000000000000000000013 /* HostCallKitCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostCallKitCoordinator.swift; sourceTree = "<group>"; };
+		A20000000000000000000014 /* CallKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallKitBridge.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -100,6 +105,7 @@
 			children = (
 				A20000000000000000000001 /* WPhoneApp.swift */,
 				A20000000000000000000002 /* TunnelController.swift */,
+				A20000000000000000000013 /* HostCallKitCoordinator.swift */,
 			);
 			path = HostApp;
 			sourceTree = "<group>";
@@ -118,6 +124,7 @@
 			children = (
 				A20000000000000000000004 /* SharedLogger.swift */,
 				A20000000000000000000012 /* NotificationRouting.swift */,
+				A20000000000000000000014 /* CallKitBridge.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -232,6 +239,8 @@
 				A10000000000000000000002 /* TunnelController.swift in Sources */,
 				A10000000000000000000003 /* SharedLogger.swift in Sources */,
 				A10000000000000000000008 /* NotificationRouting.swift in Sources */,
+				A1000000000000000000000A /* HostCallKitCoordinator.swift in Sources */,
+				A1000000000000000000000B /* CallKitBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -243,6 +252,7 @@
 				A10000000000000000000005 /* SharedLogger.swift in Sources */,
 				A10000000000000000000007 /* WPhoneEventAPI.swift in Sources */,
 				A10000000000000000000009 /* NotificationRouting.swift in Sources */,
+				A1000000000000000000000C /* CallKitBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

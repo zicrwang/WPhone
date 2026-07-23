@@ -413,7 +413,7 @@ enum WPhoneEventContract {
       "openapi": "3.0.3",
       "info": {
         "title": "WPhone LAN API",
-        "version": "1.2.0",
+        "version": "1.3.0",
         "description": "Versioned event delivery and private-LAN debug API for WPhone. This API has no authentication or TLS and must remain on a trusted private network."
       },
       "servers": [{ "url": "/" }],
@@ -502,7 +502,7 @@ enum WPhoneEventContract {
         "/api/debug/call": {
           "post": {
             "operationId": "reportDebugCallKitCall",
-            "description": "Reports a CallKit incoming call. Answer immediately ends the synthetic call and posts a silent foreground-action notification that launches WPhone and then opens WeChat.",
+            "description": "Queues an incoming call for the main-app CallKit provider through the App Group bridge. If the host app does not acknowledge it, WPhone falls back to a sound notification. Answer immediately ends the synthetic call and posts a silent foreground-action notification that launches WPhone and then opens WeChat.",
             "parameters": [{
               "name": "caller",
               "in": "query",

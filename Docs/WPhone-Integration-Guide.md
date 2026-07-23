@@ -203,7 +203,7 @@ homeassistant.home
 }
 ```
 
-普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`。WPhone 会为 `call.incoming` 报告 CallKit 系统来电：拒绝会结束合成来电；接听会立即结束它并提交无声的“打开微信”前台通知。它不是实际 VoIP 通话，也不传输音频；新的来电会替换上一条活动来电。
+普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`。WPhone 会把 `call.incoming` 交给主 App 的 CallKit provider：拒绝会结束合成来电；接听会立即结束它并提交无声的“打开微信”前台通知。主 App 未确认桥接命令时会回退为有声通知。它不是实际 VoIP 通话，也不传输音频；新的来电会替换上一条活动来电。
 
 ### 4.3 通用通知与移除
 
@@ -415,10 +415,11 @@ GET http://<iphone-ip>:8080/openapi.json
 2. `GET /health` 是否返回 `ok: true`。
 3. `GET /api/status` 中 `listener.state` 是否为 `ready`。
 4. 普通消息和接听交接检查 `notifications.authorization` 是否为 `authorized` 或 `provisional`；CallKit 本身没有单独的用户授权状态。
-5. `events.acceptedCount`、`lastEventId` 和 `lastEventEffect` 是否更新。
-6. 来电后检查 `notifications.activeCallCount`；响铃时应为 `1`，接听或结束后应回到 `0`。
-7. 使用 `/api/logs?cursor=0` 查看 `CallKit call reported`、`CallKit answered and ended`，或包含 domain/code 的 CallKit 报告错误。
-8. 检查 iOS 闹钟权限、通知设置和声音设置。
+5. 检查 `notifications.providerLocation` 是否为 `main-app`，`providerReady` 和 `bridgeReachable` 是否为 `true`；`hostProcessState: suspended-or-stale` 表示本地桥不能保证唤醒主 App。
+6. `events.acceptedCount`、`lastEventId` 和 `lastEventEffect` 是否更新。
+7. 来电后检查 `notifications.activeCallCount`；响铃时应为 `1`，接听或结束后应回到 `0`。若为 `0` 且收到普通有声通知，说明执行了主 App 不可达回退。
+8. 使用 `/api/logs?cursor=0` 查看 `queued for main-app CallKit`、`main-app CallKit call reported`、`Main app CallKit answered and ended`，或包含 domain/code 的报告错误。
+9. 检查 iOS 通知设置、铃声音量和专注模式。
 
 HTTP `202` 只表示 WPhone 接受并提交了本地处理请求。iOS 最终是否展示 CallKit/通知、播放铃声或以前台动作呈现仍由系统决定。
 

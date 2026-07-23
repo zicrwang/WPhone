@@ -1,4 +1,3 @@
-import CallKit
 import Foundation
 import Network
 import NetworkExtension
@@ -67,10 +66,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var listenerStartCompletion: ((Error?) -> Void)?
     private var listenerReachedReady = false
     private var runtimeState = RuntimeState()
-    private lazy var callKit = CallKitCoordinator { [weak self] event in
-        self?.handleCallKitEvent(event)
-    }
-
     override func startTunnel(
         options: [String: NSObject]?,
         completionHandler: @escaping (Error?) -> Void
@@ -78,7 +73,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         log.info("Starting keepalive-only packet tunnel")
         loadProviderConfiguration()
         NotificationRouting.registerCategories()
-        log.info("CallKit provider ready ringtone=\(callKit.customRingtoneFileName ?? "system")")
+        log.info("CallKit command bridge ready; CXProvider is hosted by the main app")
         mutateState {
             $0.tunnelStartedAt = Date()
             $0.listenerState = "starting"
@@ -131,7 +126,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         log.info("Stopping packet tunnel, reason=\(reason.rawValue)")
-        callKit.endAll(reason: .remoteEnded)
         listener?.cancel()
         listener = nil
         listenerStartCompletion = nil
@@ -447,7 +441,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             sendAccepted(action: "DEBUG_MESSAGE", on: connection)
         case ("POST", "/api/debug/call"):
             let caller = request.queryValue(named: "caller", maximumCharacters: 80) ?? "WPhone 调试来电"
-            reportIncomingCall(
+            let commandID = reportIncomingCall(
                 key: "debug-call",
                 caller: caller,
                 hasVideo: false,
@@ -457,8 +451,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             sendAccepted(
                 action: "DEBUG_CALLKIT_INCOMING",
                 extra: [
-                    "mode": "callkit",
-                    "callKit": true,
+                    "mode": "main-app-callkit-bridge",
+                    "callKit": commandID != nil,
+                    "queued": commandID != nil,
+                    "commandId": commandID.map { $0 as Any } ?? NSNull(),
                     "answerBehavior": "end-call-then-foreground-notification"
                 ],
                 on: connection
@@ -661,12 +657,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             let center = UNUserNotificationCenter.current()
             center.removePendingNotificationRequests(withIdentifiers: [targetIdentifier])
             center.removeDeliveredNotifications(withIdentifiers: [targetIdentifier])
-            _ = callKit.end(
-                key: callKey(source: event.source, eventID: targetID),
-                reason: .remoteEnded
+            enqueueCallKitCommand(
+                .end(
+                    key: callKey(source: event.source, eventID: targetID),
+                    action: "EVENT_CALLKIT_ENDED"
+                )
             )
-            recordAction("EVENT_CALLKIT_ENDED")
-            log.info("Event CallKit call ended source=\(event.source) targetId=\(targetID)")
+            log.info("Event CallKit end queued source=\(event.source) targetId=\(targetID)")
         case "notification.dismiss":
             guard let targetID = event.payloadString("targetId") else { return }
             let targetIdentifier = WPhoneEventContract.notificationIdentifier(
@@ -758,53 +755,61 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         "\(source):\(eventID)"
     }
 
+    @discardableResult
     private func reportIncomingCall(
         key: String,
         caller: String,
         hasVideo: Bool,
         action: String,
         notificationIdentifier: String
-    ) {
-        callKit.reportIncoming(
+    ) -> String? {
+        let command = CallKitBridgeCommand.incoming(
             key: key,
             caller: caller,
             hasVideo: hasVideo,
             action: action,
-            handoffNotificationIdentifier: notificationIdentifier
+            notificationIdentifier: notificationIdentifier
         )
-    }
-
-    private func handleCallKitEvent(_ event: CallKitCoordinator.Event) {
-        switch event {
-        case .reported(let action, let key):
-            recordAction(action)
-            log.info("\(action) CallKit call reported key=\(key)")
-        case .reportFailed(let key, let caller, let notificationIdentifier, let message):
-            recordError("CallKit report failed key=\(key): \(message)")
+        guard enqueueCallKitCommand(command) else {
             submitNotification(
                 identifier: notificationIdentifier,
                 title: "微信来电",
                 body: "\(caller)，点按打开微信",
-                action: "CALLKIT_FALLBACK_NOTIFICATION",
+                action: "CALLKIT_BRIDGE_FAILED_FALLBACK_NOTIFICATION",
                 opensWeChat: true
             )
-        case .answered(let key, let caller, let notificationIdentifier):
-            recordAction("CALLKIT_ANSWERED")
-            log.info("CallKit answered and ended key=\(key)")
-            submitNotification(
+            return nil
+        }
+
+        log.info("\(action) queued for main-app CallKit key=\(key) commandId=\(command.id)")
+        listenerQueue.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self else { return }
+            if CallKitBridge.loadState()?.hasProcessed(command.id) == true {
+                self.log.debug("Main app acknowledged CallKit command id=\(command.id)")
+                return
+            }
+            CallKitBridge.removePendingCommand(id: command.id)
+            self.log.info("Main app did not acknowledge CallKit command; using notification fallback id=\(command.id)")
+            self.submitNotification(
                 identifier: notificationIdentifier,
-                title: "打开微信",
-                body: "\(caller)，点按直接进入微信",
-                action: "CALLKIT_HANDOFF_NOTIFICATION",
-                sound: "none",
+                title: "微信来电",
+                body: "\(caller)，点按打开微信",
+                action: "CALLKIT_HOST_UNREACHABLE_FALLBACK_NOTIFICATION",
                 opensWeChat: true
             )
-        case .declined(let key):
-            recordAction("CALLKIT_DECLINED")
-            log.info("CallKit declined key=\(key)")
-        case .reset:
-            recordAction("CALLKIT_RESET")
-            log.info("CallKit provider reset")
+        }
+        return command.id
+    }
+
+    @discardableResult
+    private func enqueueCallKitCommand(_ command: CallKitBridgeCommand) -> Bool {
+        do {
+            try CallKitBridge.enqueue(command)
+            recordAction("\(command.action ?? "CALLKIT_COMMAND")_QUEUED")
+            return true
+        } catch {
+            recordError("CallKit bridge enqueue failed: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -855,9 +860,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
-        callKit.endAll(reason: .remoteEnded)
-        recordAction("STOP_DEBUG")
-        log.info("Debug calls and notifications removed")
+        _ = enqueueCallKitCommand(.endAll(action: "STOP_DEBUG"))
+        log.info("Debug notifications removed and main-app CallKit stop queued")
     }
 
     private func sendLogSnapshot(for request: HTTPRequest, on connection: NWConnection) {
@@ -930,6 +934,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "incremental_logs",
                 "message_notification",
                 "callkit_incoming_call",
+                "callkit_main_app_provider",
+                "app_group_callkit_bridge",
+                "callkit_notification_fallback",
                 "callkit_custom_ringtone",
                 "foreground_notification_handoff",
                 "wechat_notification_action"
@@ -938,19 +945,38 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func statusPayload() -> [String: Any] {
-        let state = stateSnapshot()
+        let runtime = stateSnapshot()
+        let callState = CallKitBridge.loadState()
         connectionLock.lock()
         let activeConnections = connections.count
         connectionLock.unlock()
 
         let uptimeSeconds: Int
-        if let startedAt = state.tunnelStartedAt {
+        if let startedAt = runtime.tunnelStartedAt {
             uptimeSeconds = max(0, Int(Date().timeIntervalSince(startedAt)))
         } else {
             uptimeSeconds = 0
         }
 
-        let callState = callKit.stateSnapshot
+        let hostStateAgeSeconds = callState.map {
+            max(0, Int(Date().timeIntervalSince($0.hostUpdatedAt)))
+        }
+        let hostProcessState: String
+        if let callState, let hostStateAgeSeconds {
+            hostProcessState = hostStateAgeSeconds <= 15
+                ? callState.hostApplicationState
+                : "suspended-or-stale"
+        } else {
+            hostProcessState = "not-started"
+        }
+        let bridgeReachable = hostStateAgeSeconds.map { $0 <= 15 } == true
+            && (callState?.hostApplicationState == "active"
+                || callState?.hostApplicationState == "background")
+        let hostActionIsNewer = (callState?.lastActionAt ?? .distantPast)
+            > (runtime.lastActionAt ?? .distantPast)
+        let lastAction = hostActionIsNewer ? callState?.lastAction : runtime.lastAction
+        let lastActionAt = hostActionIsNewer ? callState?.lastActionAt : runtime.lastActionAt
+
         return [
             "ok": true,
             "service": "wphone",
@@ -960,32 +986,41 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "packetForwarding": false,
                 "includedRouteCount": 0,
                 "defaultRouteExcluded": true,
-                "startedAt": jsonValue(state.tunnelStartedAt.map { dateFormatter.string(from: $0) }),
+                "startedAt": jsonValue(runtime.tunnelStartedAt.map { dateFormatter.string(from: $0) }),
                 "uptimeSeconds": uptimeSeconds
             ],
             "listener": [
-                "state": state.listenerState,
+                "state": runtime.listenerState,
                 "port": Int(listenerPort.rawValue),
                 "interface": "wifi",
                 "accessPolicy": "private-lan-only",
                 "bonjourType": Self.bonjourServiceType,
                 "activeConnections": activeConnections,
                 "maximumConnections": Self.maximumConnections,
-                "totalRequests": state.totalRequests,
-                "lastRequestPath": jsonValue(state.lastRequestPath)
+                "totalRequests": runtime.totalRequests,
+                "lastRequestPath": jsonValue(runtime.lastRequestPath)
             ],
             "notifications": [
-                "authorization": state.notificationAuthorization,
-                "lastAction": jsonValue(state.lastAction),
-                "lastActionAt": jsonValue(state.lastActionAt.map { dateFormatter.string(from: $0) }),
-                "callDebugMode": "callkit",
+                "authorization": runtime.notificationAuthorization,
+                "lastAction": jsonValue(lastAction),
+                "lastActionAt": jsonValue(lastActionAt.map { dateFormatter.string(from: $0) }),
+                "callDebugMode": "main-app-callkit-bridge",
                 "callKit": true,
-                "activeCallCount": callState.count,
-                "activeCallKey": jsonValue(callState.key),
-                "caller": jsonValue(callState.caller),
-                "customRingtone": jsonValue(callKit.customRingtoneFileName),
+                "providerLocation": "main-app",
+                "providerReady": callState?.providerReady ?? false,
+                "providerLifecycle": callState?.lifecycle ?? "not-started",
+                "hostProcessState": hostProcessState,
+                "hostStateAgeSeconds": jsonValue(hostStateAgeSeconds),
+                "bridgeReachable": bridgeReachable,
+                "pendingCommandCount": CallKitBridge.pendingCommandCount,
+                "activeCallCount": callState?.activeCallCount ?? 0,
+                "activeCallKey": jsonValue(callState?.activeCallKey),
+                "caller": jsonValue(callState?.caller),
+                "customRingtone": jsonValue(callState?.customRingtone),
+                "lastError": jsonValue(callState?.lastError),
                 "answerBehavior": "end-call-then-foreground-notification",
-                "openBehavior": "notification-opens-wphone-then-wechat"
+                "openBehavior": "notification-opens-wphone-then-wechat",
+                "fallbackBehavior": "sound-notification-when-host-unreachable"
             ],
             "alarmKit": [
                 "supported": false,
@@ -1006,14 +1041,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "specVersion": WPhoneEventContract.specVersion,
                 "supportedTypes": WPhoneEventContract.supportedEventTypes,
                 "idempotencyRecords": eventIdempotencyStore.count,
-                "acceptedCount": state.acceptedEventCount,
-                "duplicateCount": state.duplicateEventCount,
-                "lastEventId": jsonValue(state.lastEventID),
-                "lastEventSource": jsonValue(state.lastEventSource),
-                "lastEventType": jsonValue(state.lastEventType),
-                "lastEventEffect": jsonValue(state.lastEventEffect)
+                "acceptedCount": runtime.acceptedEventCount,
+                "duplicateCount": runtime.duplicateEventCount,
+                "lastEventId": jsonValue(runtime.lastEventID),
+                "lastEventSource": jsonValue(runtime.lastEventSource),
+                "lastEventType": jsonValue(runtime.lastEventType),
+                "lastEventEffect": jsonValue(runtime.lastEventEffect)
             ],
-            "lastError": jsonValue(state.lastError)
+            "lastError": jsonValue(runtime.lastError ?? callState?.lastError)
         ]
     }
 
@@ -1068,6 +1103,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func jsonValue(_ value: String?) -> Any {
+        guard let value else { return NSNull() }
+        return value
+    }
+
+    private func jsonValue(_ value: Int?) -> Any {
         guard let value else { return NSNull() }
         return value
     }
@@ -1302,7 +1342,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             byId('uptime').textContent = duration(data.tunnel.uptimeSeconds);
             byId('notification').textContent = data.notifications.authorization;
             const ringtone = data.notifications.customRingtone || '系统铃声';
-            byId('callKit').textContent = `${data.notifications.activeCallCount ? '响铃中' : '空闲'} · ${ringtone}`;
+            const callState = data.notifications.activeCallCount
+              ? '响铃中'
+              : (data.notifications.bridgeReachable && data.notifications.providerReady ? '空闲' : '等待主App');
+            byId('callKit').textContent = `${callState} · 主App:${data.notifications.hostProcessState} · ${ringtone}`;
             byId('requests').textContent = String(data.listener.totalRequests);
             byId('eventsAccepted').textContent = String(data.events.acceptedCount);
             byId('eventsDuplicate').textContent = String(data.events.duplicateCount);
@@ -1352,7 +1395,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         byId('callForm').addEventListener('submit', event => {
           event.preventDefault();
           const query = new URLSearchParams({ caller: byId('caller').value });
-          runAction(`/api/debug/call?${query}`, 'CallKit 来电已提交');
+          runAction(`/api/debug/call?${query}`, '来电命令已提交至主 App');
         });
         byId('stopButton').addEventListener('click', () => runAction('/api/debug/stop', '调试通知已清除'));
         byId('clearView').addEventListener('click', () => { byId('logs').textContent = ''; });
@@ -1365,183 +1408,4 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     </body>
     </html>
     """#
-}
-
-private final class CallKitCoordinator: NSObject, CXProviderDelegate {
-    static let preferredRingtoneFileName = "WPhoneRingtone.caf"
-
-    enum Event {
-        case reported(action: String, key: String)
-        case reportFailed(
-            key: String,
-            caller: String,
-            notificationIdentifier: String,
-            message: String
-        )
-        case answered(key: String, caller: String, notificationIdentifier: String)
-        case declined(key: String)
-        case reset
-    }
-
-    private struct ActiveCall {
-        let key: String
-        let caller: String
-        let handoffNotificationIdentifier: String
-    }
-
-    private let provider: CXProvider
-    private let eventHandler: (Event) -> Void
-    private let lock = NSLock()
-    private var callsByUUID: [UUID: ActiveCall] = [:]
-    private var uuidByKey: [String: UUID] = [:]
-    let customRingtoneFileName: String?
-
-    init(eventHandler: @escaping (Event) -> Void) {
-        let configuration = CXProviderConfiguration(localizedName: "手机信息通知")
-        configuration.supportsVideo = true
-        configuration.maximumCallGroups = 1
-        configuration.maximumCallsPerCallGroup = 1
-        configuration.supportedHandleTypes = [.generic]
-        configuration.includesCallsInRecents = false
-
-        if Bundle.main.url(forResource: "WPhoneRingtone", withExtension: "caf") != nil {
-            configuration.ringtoneSound = Self.preferredRingtoneFileName
-            customRingtoneFileName = Self.preferredRingtoneFileName
-        } else {
-            customRingtoneFileName = nil
-        }
-
-        provider = CXProvider(configuration: configuration)
-        self.eventHandler = eventHandler
-        super.init()
-        provider.setDelegate(
-            self,
-            queue: DispatchQueue(label: "app.wephone.vpn.callkit", qos: .userInitiated)
-        )
-    }
-
-    var stateSnapshot: (count: Int, key: String?, caller: String?) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let call = callsByUUID.values.first else {
-            return (0, nil, nil)
-        }
-        return (callsByUUID.count, call.key, call.caller)
-    }
-
-    func reportIncoming(
-        key: String,
-        caller: String,
-        hasVideo: Bool,
-        action: String,
-        handoffNotificationIdentifier: String
-    ) {
-        endAll(reason: .unanswered)
-
-        let uuid = UUID()
-        let activeCall = ActiveCall(
-            key: key,
-            caller: caller,
-            handoffNotificationIdentifier: handoffNotificationIdentifier
-        )
-        lock.lock()
-        callsByUUID[uuid] = activeCall
-        uuidByKey[key] = uuid
-        lock.unlock()
-
-        let update = CXCallUpdate()
-        update.remoteHandle = CXHandle(type: .generic, value: caller)
-        update.localizedCallerName = caller
-        update.hasVideo = hasVideo
-        update.supportsDTMF = false
-        update.supportsGrouping = false
-        update.supportsHolding = false
-        update.supportsUngrouping = false
-
-        provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
-            guard let self else { return }
-            if let error {
-                _ = self.remove(uuid: uuid)
-                self.eventHandler(.reportFailed(
-                    key: key,
-                    caller: caller,
-                    notificationIdentifier: handoffNotificationIdentifier,
-                    message: Self.describe(error)
-                ))
-            } else if self.contains(uuid: uuid) {
-                self.eventHandler(.reported(action: action, key: key))
-            }
-        }
-    }
-
-    @discardableResult
-    func end(key: String, reason: CXCallEndedReason) -> Bool {
-        lock.lock()
-        let uuid = uuidByKey[key]
-        lock.unlock()
-        guard let uuid, remove(uuid: uuid) != nil else { return false }
-        provider.reportCall(with: uuid, endedAt: Date(), reason: reason)
-        return true
-    }
-
-    func endAll(reason: CXCallEndedReason) {
-        lock.lock()
-        let uuids = Array(callsByUUID.keys)
-        callsByUUID.removeAll(keepingCapacity: false)
-        uuidByKey.removeAll(keepingCapacity: false)
-        lock.unlock()
-
-        let endedAt = Date()
-        uuids.forEach { provider.reportCall(with: $0, endedAt: endedAt, reason: reason) }
-    }
-
-    func providerDidReset(_ provider: CXProvider) {
-        lock.lock()
-        callsByUUID.removeAll(keepingCapacity: false)
-        uuidByKey.removeAll(keepingCapacity: false)
-        lock.unlock()
-        eventHandler(.reset)
-    }
-
-    func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
-        guard let call = remove(uuid: action.callUUID) else {
-            action.fail()
-            return
-        }
-        action.fulfill()
-        provider.reportCall(with: action.callUUID, endedAt: Date(), reason: .remoteEnded)
-        eventHandler(.answered(
-            key: call.key,
-            caller: call.caller,
-            notificationIdentifier: call.handoffNotificationIdentifier
-        ))
-    }
-
-    func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        guard let call = remove(uuid: action.callUUID) else {
-            action.fulfill()
-            return
-        }
-        action.fulfill()
-        eventHandler(.declined(key: call.key))
-    }
-
-    private func contains(uuid: UUID) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return callsByUUID[uuid] != nil
-    }
-
-    private func remove(uuid: UUID) -> ActiveCall? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let call = callsByUUID.removeValue(forKey: uuid) else { return nil }
-        uuidByKey.removeValue(forKey: call.key)
-        return call
-    }
-
-    private static func describe(_ error: Error) -> String {
-        let nsError = error as NSError
-        return "domain=\(nsError.domain); code=\(nsError.code); description=\(nsError.localizedDescription)"
-    }
 }

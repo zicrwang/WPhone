@@ -4,7 +4,7 @@
 
 项目不使用任何第三方 Web 或网络框架。日志同时写入 Unified Logging 和 App Group 目录中的 `debug.log`，文件达到 512 KB 时自动轮转，主 App 内可直接查看。
 
-来电提醒使用 CallKit，项目最低支持 iOS 15.0。它不使用 AlarmKit、PushKit、APNs 或 Critical Alert entitlement；主 App 的本地通知权限用于接听后的微信交接入口。
+来电提醒使用主 App 中的 CallKit，项目最低支持 iOS 15.0。Packet Tunnel 通过 App Group 命令桥把局域网来电交给主 App；它不使用 AlarmKit、PushKit、APNs 或 Critical Alert entitlement。主 App 未运行或已被系统挂起时，Extension 会改用有声本地通知，避免事件静默丢失。
 
 ## 当前标识
 
@@ -70,13 +70,13 @@ curl http://<手机的局域网IP>:8080/openapi.json
 
 接口没有账号或令牌认证，同一私网内的其他设备也能读取日志和触发通知；只应在可信局域网中开启 VPN。Codex 无法仅凭项目代码自动知道手机当前 IP，需要提供 IP，或先通过 `_wphone-debug._tcp` 的 mDNS/Bonjour 记录发现服务。
 
-“CallKit 来电”由 Packet Tunnel Extension 的 `CXProvider` 报告系统来电页，但不会建立真实语音通道。拒绝会立即取消来电；接听会立即结束这个合成来电，并提交一条无声、time-sensitive、带 `.foreground` 操作的“打开微信”通知。点击通知正文或“打开微信”后，系统先将 WPhone 置于前台，WPhone 在激活后自动尝试 `weixin://`；自动跳转失败时显示全屏“打开微信”按钮。
+“CallKit 来电”由 Packet Tunnel Extension 写入 App Group 命令队列，再由主 App 的 `CXProvider` 报告系统来电页，但不会建立真实语音通道。拒绝会立即取消来电；接听会立即结束这个合成来电，并提交一条无声、time-sensitive、带 `.foreground` 操作的“打开微信”通知。点击通知正文或“打开微信”后，系统先将 WPhone 置于前台，WPhone 在激活后自动尝试 `weixin://`；自动跳转失败时显示全屏“打开微信”按钮。
 
-VPN 只提供 Packet Tunnel Extension 的后台生命周期，不参与路由或代理。局域网 HTTP 监听器和当前 `CXProvider` 都运行在 Packet Tunnel 进程中；停止 VPN 后 iOS 会结束该扩展，无法再接收局域网事件，活动的合成来电也会结束。已经交给系统的本地通知仍由系统管理。这是后台入口的生命周期限制，不是通知权限依赖 VPN。
+VPN 只提供 Packet Tunnel Extension 的后台生命周期，不参与路由、代理或 CallKit。停止 VPN 后 iOS 会结束局域网 HTTP 监听器，因此无法接收新的局域网事件；它不会主动结束主 App 已经报告的 CallKit 来电或已交给系统的通知。
 
-VPN Extension 不能调用 `UIApplication`，所以 CallKit 的接听回调不能直接启动微信。“打开微信”必须由主 App 处理，系统会短暂经过 WPhone；公开 API 不支持由后台扩展在完全无用户操作的情况下启动其他 App。`.foreground` 是这一步最直接的公开交接方式，通知正文的默认点击也执行相同路由。
+`CXProvider` 和接听回调现在都位于主 App，但 iOS 仍不允许接听动作无用户确认地启动另一个 App。“打开微信”由 `.foreground` 通知动作完成，系统会短暂经过 WPhone；通知正文的默认点击执行相同路由。
 
-CallKit 支持自定义铃声。扩展会在自身 bundle 中查找 `WPhoneRingtone.caf`：把该文件加入 Xcode 工程并只勾选 **PacketTunnel** Target Membership 后，`CXProviderConfiguration.ringtoneSound` 会自动启用它；文件缺失时使用系统 CallKit 铃声。`GET /api/status` 的 `notifications.customRingtone` 会显示实际启用的文件名或 `null`。
+CallKit 支持自定义铃声。主 App 会在自身 bundle 中查找 `WPhoneRingtone.caf`：把该文件加入 Xcode 工程并只勾选 **WPhone** Target Membership 后，`CXProviderConfiguration.ringtoneSound` 会自动启用它；文件缺失时使用系统 CallKit 铃声。`GET /api/status` 的 `notifications.customRingtone` 会显示实际启用的文件名或 `null`。
 
 ## 兼容指令
 
@@ -101,4 +101,4 @@ Host: iphone.local:8080
 
 `NEPacketTunnelProvider` 不是永久后台运行保证。即使使用 Ad Hoc 或企业签名，iOS 仍可因系统策略、资源压力、网络切换或配置变化停止扩展。空包含路由和排除默认路由可避免主动接管普通流量，但不能承诺所有未来 iOS 版本行为完全相同。
 
-WPhone 当前一次只保留一条活动 CallKit 来电，新来电会以“未接听”结束上一条。铃声、接听/拒绝界面和最终呈现由 iOS 控制。接听后的交接通知刻意不播放声音，避免系统来电结束后重复响铃；若用户关闭 WPhone 通知权限，CallKit 仍可能显示来电，但接听后的通知交接无法出现。CallKit 应用于合成提醒不等于真实 VoIP 通话，WPhone 不传输或接管任何音频。
+WPhone 当前一次只保留一条活动 CallKit 来电，新来电会以“未接听”结束上一条。铃声、接听/拒绝界面和最终呈现由 iOS 控制。主 App 活跃或仍在执行时，App Group 的 Darwin 通知通常可立即交付；主 App 已完全挂起时，公开 API 不能由 Packet Tunnel 强制唤醒它，因此一秒后改用有声通知。接听后的交接通知刻意不播放声音，避免系统来电结束后重复响铃。CallKit 应用于合成提醒不等于真实 VoIP 通话，WPhone 不传输或接管任何音频。

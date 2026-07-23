@@ -31,12 +31,22 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         NotificationRouting.registerCategories(on: center)
+        HostCallKitCoordinator.shared.start()
         SharedLogger.shared.debug("Notification actions registered")
         return true
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
+        HostCallKitCoordinator.shared.applicationDidBecomeActive()
         WeChatLaunchCoordinator.shared.applicationDidBecomeActive()
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        HostCallKitCoordinator.shared.applicationDidEnterBackground()
+    }
+
+    func applicationWillTerminate(_ application: UIApplication) {
+        HostCallKitCoordinator.shared.applicationWillTerminate()
     }
 
     func userNotificationCenter(
