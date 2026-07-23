@@ -6,22 +6,21 @@
 
 ## 当前标识
 
-- 主 App：`app.star6979.lettuce4401`
-- Packet Tunnel Extension：`app.star6979.lettuce4401.PacketTunnel`
+- 主 App：`app.wephone.vpn`
+- Packet Tunnel Extension：`app.wephone.vpn.PacketTunnel`
 - 工程/产品名：`WPhone`
 - App 显示名：`手机信息通知`
 - App Group：`group.3970029fa0cfcf6d.1`
-- Apple Team ID：`84V4S488EQ`
 
 ## 固定构建方式
 
-每次推送都会执行无需签名的真机 Release 编译，确认主 App 已嵌入 `PacketTunnel.appex`，并上传 `WPhone-unsigned-ipa` artifact。下载其中的 `WPhone-unsigned.ipa` 后，可以交给支持 App Extension 和相应 entitlement 的手机端签名工具处理；这条流程不需要 GitHub Secrets。
+只有手动运行 GitHub Actions 工作流时，才会执行无需签名的真机 Release 编译，确认主 App 已嵌入 `PacketTunnel.appex`，并上传 `WPhone-unsigned-ipa` artifact。普通代码推送和 Pull Request 不构建 IPA。下载其中的 `WPhone-unsigned.ipa` 后，可以交给支持 App Extension 和相应 entitlement 的手机端签名工具处理；这条流程不需要 GitHub Secrets。
 
 这是本项目的固定云端构建方式：GitHub Actions 不导入 P12、不安装 provisioning profile、不读取 Apple 签名 Secrets，也不执行 Ad Hoc 签名。`WPhone-unsigned.ipa` 内保持标准嵌套结构：`Payload/WPhone.app/PlugIns/PacketTunnel.appex`。
 
-未签名 IPA 不会绕过 iOS 的签名校验。安装前仍需由手机端工具完成签名，并确保主 App 和嵌入的 `PacketTunnel.appex` 都被正确处理。已经在实际设备上验证：手机端签名后可以申请通知权限并连接 VPN。
+未签名 IPA 不会绕过 iOS 的签名校验。安装前仍需由手机端工具完成签名，并确保主 App 和嵌入的 `PacketTunnel.appex` 都被正确处理。通知授权和 VPN 连接流程此前已在实际设备上验证；更换为当前固定 Bundle ID 后，需要在下次手动构建并签名时重新确认。
 
-进入 GitHub 仓库的 **Actions > Build iOS app > Run workflow** 可手动重新构建；也可以直接推送到 `main` 自动触发。最终下载 `WPhone-unsigned-ipa` artifact 即可。
+仅在明确需要新 IPA 时，进入 GitHub 仓库的 **Actions > Build iOS app > Run workflow** 手动构建。最终下载 `WPhone-unsigned-ipa` artifact 即可。
 
 ## 使用
 

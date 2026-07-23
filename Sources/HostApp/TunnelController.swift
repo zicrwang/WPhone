@@ -5,8 +5,7 @@ import UserNotifications
 
 @MainActor
 final class TunnelController: NSObject, ObservableObject {
-    // Change these values to the identifiers registered in the Apple Developer portal.
-    static let providerBundleIdentifier = "app.star6979.lettuce4401.PacketTunnel"
+    static let providerBundleIdentifier = "app.wephone.vpn.PacketTunnel"
     static let appGroupIdentifier = "group.3970029fa0cfcf6d.1"
     static let allowedClientIPv4 = "192.168.1.10"
 

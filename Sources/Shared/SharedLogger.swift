@@ -20,7 +20,7 @@ public final class SharedLogger {
     private let maximumLogBytes = 512 * 1024
 
     private init() {
-        let subsystem = Bundle.main.bundleIdentifier ?? "app.star6979.lettuce4401"
+        let subsystem = Bundle.main.bundleIdentifier ?? "app.wephone.vpn"
         osLogger = Logger(subsystem: subsystem, category: "runtime")
         timestampFormatter = ISO8601DateFormatter()
 

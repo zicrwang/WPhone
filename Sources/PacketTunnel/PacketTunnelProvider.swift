@@ -4,12 +4,12 @@ import NetworkExtension
 import UserNotifications
 
 final class PacketTunnelProvider: NEPacketTunnelProvider {
-    private static let ringNotificationIdentifier = "app.star6979.lettuce4401.ring"
+    private static let ringNotificationIdentifier = "app.wephone.vpn.ring"
     private static let maximumRequestBytes = 16 * 1024
     private static let maximumConnections = 8
 
     private let log = SharedLogger.shared
-    private let listenerQueue = DispatchQueue(label: "app.star6979.lettuce4401.listener")
+    private let listenerQueue = DispatchQueue(label: "app.wephone.vpn.listener")
     private let connectionLock = NSLock()
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
