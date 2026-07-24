@@ -179,7 +179,7 @@ private struct WPhoneWallpaper: View {
     private static let transitionArtwork: UIImage? = {
         guard let url = Bundle.main.url(
             forResource: "WeChatTransitionWallpaper",
-            withExtension: "heic"
+            withExtension: "png"
         ) else {
             return nil
         }
