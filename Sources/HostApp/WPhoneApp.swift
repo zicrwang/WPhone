@@ -41,14 +41,21 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
     ) {
         let request = response.notification.request
         switch response.actionIdentifier {
-        case NotificationRouting.openWeChatActionIdentifier,
-             UNNotificationDefaultActionIdentifier:
+        case NotificationRouting.openWeChatActionIdentifier:
             guard let destination = NotificationRouting.destination(from: request.content) else {
                 SharedLogger.shared.error("Notification does not contain an approved destination")
                 completionHandler()
                 return
             }
             center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
+            openWeChat(destination: destination, completion: completionHandler)
+        case UNNotificationDefaultActionIdentifier:
+            center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
+            guard let destination = NotificationRouting.destination(from: request.content) else {
+                SharedLogger.shared.info("Notification opened in WPhone")
+                completionHandler()
+                return
+            }
             openWeChat(destination: destination, completion: completionHandler)
         case NotificationRouting.dismissActionIdentifier,
              UNNotificationDismissActionIdentifier:

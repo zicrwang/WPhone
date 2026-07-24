@@ -1,4 +1,5 @@
 import Foundation
+import Intents
 import UserNotifications
 
 enum NotificationRouting {
@@ -23,6 +24,38 @@ enum NotificationRouting {
     private static let migrationKey = "app.wephone.vpn.sound.notification-migration-version"
     private static let supportedSoundExtensions = ["wav", "caf", "aiff"]
     private static let migrationLock = NSLock()
+
+    enum SourcePresentation {
+        case wphone
+        case wechat
+        case sms
+        case phone
+        case email
+
+        var displayName: String {
+            switch self {
+            case .wphone: return "WPhone"
+            case .wechat: return "微信"
+            case .sms: return "短信"
+            case .phone: return "电话"
+            case .email: return "邮箱"
+            }
+        }
+
+        fileprivate var iconResourceName: String? {
+            switch self {
+            case .wphone: return nil
+            case .wechat: return "Wechat"
+            case .sms: return "SMS"
+            case .phone: return "Phone"
+            case .email: return "Email"
+            }
+        }
+
+        fileprivate var opensWeChat: Bool {
+            self == .wechat
+        }
+    }
 
     enum SoundStorageError: LocalizedError {
         case sharedContainerUnavailable
@@ -138,6 +171,60 @@ enum NotificationRouting {
     static func routeToWeChat(_ content: UNMutableNotificationContent) {
         content.categoryIdentifier = categoryIdentifier
         content.userInfo[destinationKey] = weChatDestination
+    }
+
+    static func sourcePresentation(for source: String) -> SourcePresentation {
+        let key = source
+            .split(whereSeparator: { $0 == "." || $0 == "_" || $0 == "-" })
+            .first
+            .map(String.init)
+
+        switch key {
+        case "wechat": return .wechat
+        case "sms": return .sms
+        case "phone": return .phone
+        case "email": return .email
+        default: return .wphone
+        }
+    }
+
+    static func contentDecoratedForSource(
+        _ content: UNMutableNotificationContent,
+        source: String,
+        senderName: String,
+        conversationIdentifier: String?
+    ) -> UNNotificationContent {
+        let presentation = sourcePresentation(for: source)
+        if presentation.opensWeChat {
+            routeToWeChat(content)
+        }
+        guard let resourceName = presentation.iconResourceName,
+              let resourceURL = Bundle.main.url(forResource: resourceName, withExtension: "png"),
+              let imageData = try? Data(contentsOf: resourceURL) else {
+            return content
+        }
+
+        let sender = INPerson(
+            personHandle: INPersonHandle(value: source, type: .unknown),
+            nameComponents: nil,
+            displayName: senderName,
+            image: INImage(imageData: imageData),
+            contactIdentifier: nil,
+            customIdentifier: source,
+            isMe: false,
+            suggestionType: .none
+        )
+        let intent = INSendMessageIntent(
+            recipients: nil,
+            outgoingMessageType: .outgoing,
+            content: content.body,
+            speakableGroupName: nil,
+            conversationIdentifier: conversationIdentifier,
+            serviceName: presentation.displayName,
+            sender: sender,
+            attachments: nil
+        )
+        return (try? content.updating(from: intent)) ?? content
     }
 
     static func destination(from content: UNNotificationContent) -> URL? {

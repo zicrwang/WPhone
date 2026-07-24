@@ -71,8 +71,8 @@ GET  /.well-known/wphone
 GET  /openapi.json
 GET  /api/status
 GET  /api/logs?cursor=<上次返回的cursor>
-POST /api/debug/message?title=<标题>&body=<内容>
-POST /api/debug/call?caller=<来电名称>
+POST /api/debug/message?source=<wechat|sms|phone|email|wphone>&title=<标题>&body=<内容>
+POST /api/debug/call?source=<wechat|sms|phone|email|wphone>&caller=<来电名称>
 POST /api/debug/stop
 ```
 
@@ -83,11 +83,11 @@ curl http://<手机的局域网IP>:8080/.well-known/wphone
 curl http://<手机的局域网IP>:8080/openapi.json
 ```
 
-旧的 `/.well-known/wphone-debug` 发现地址继续保留兼容。
+旧的 `/.well-known/wphone-debug` 发现地址继续保留兼容。调试网页的“弹出调试”可以选择微信、短信、电话、邮箱或 WPhone 来源，以验证相同的图标与点按路由；这只用于本机调试，不替代正式的 `/api/v1/events` 请求。
 
 中继和 iPhone 调试接口都没有账号或令牌认证，只应部署在可信局域网。正式发送端固定调用中继站，不再依赖 iPhone 当前 IP；只有访问 iPhone 调试网页时才需要 IP 或 `_wphone-debug._tcp` Bonjour 发现。
 
-“时效来电通知”会立即提交一条可点击微信的 iOS `.timeSensitive` 本地通知。WPhone 不再创建系统闹铃、锁屏闹铃界面、Dynamic Island 活动或 Live Activity。点“关闭”或收到匹配的 `call.ended` 会移除通知；无操作时，Packet Tunnel 在提交后 30 秒自动清理。点“打开”会唤醒 WPhone，再由主 App 打开 `weixin://`。时效通知仍受用户通知授权、专注模式、通知摘要与其他系统策略控制。
+"时效来电通知"会立即提交一条 iOS `.timeSensitive` 本地通知。WPhone 不再创建系统闹铃、锁屏闹铃界面、Dynamic Island 活动或 Live Activity。`source` 的首分段为 `wechat`、`sms`、`phone`、`email` 时会选用内置的对应来源图片；仅 `wechat` 点“打开”后会由 WPhone 打开 `weixin://`，其余来源只进入 WPhone。点“关闭”或收到匹配的 `call.ended` 会移除通知；无操作时，Packet Tunnel 在提交后 30 秒自动清理。时效通知仍受用户通知授权、专注模式、通知摘要与其他系统策略控制。
 
 ## 来电声音
 
@@ -95,7 +95,7 @@ curl http://<手机的局域网IP>:8080/openapi.json
 
 VPN 只提供 Packet Tunnel Extension 的后台生命周期，不参与路由、代理或通知展示。局域网 HTTP 监听器和来电通知的 30 秒自动清理由 Packet Tunnel 进程执行；停止 VPN 后 iOS 会终止该进程，因此在重新连接 VPN 前无法接收新的局域网事件，已经显示的通知也不再保证按时自动移除。这是后台入口的生命周期限制，不是通知权限依赖 VPN。
 
-VPN Extension 不能调用 `UIApplication`，所以“打开”操作由本地通知唤醒主 App，主 App 再打开微信。系统会短暂经过 WPhone；公开 API 不支持由后台扩展在完全无用户操作的情况下直接启动微信。
+VPN Extension 不能调用 `UIApplication`，所以“打开”操作先由本地通知唤醒主 App；微信来源才由主 App 再打开微信。系统会短暂经过 WPhone；公开 API 不支持由后台扩展在完全无用户操作的情况下直接启动微信。
 
 ## 兼容指令
 

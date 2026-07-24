@@ -69,7 +69,7 @@ Content-Length: <bytes>
 | --- | --- | --- |
 | `specVersion` | 是 | 固定发送整数 `1`，不要发送字符串 `"1"` |
 | `id` | 是 | 同一事件的全部重试必须复用同一 ID；建议使用 UUID 或来源侧稳定事件 ID |
-| `source` | 是 | 为适配器实例选择稳定名称，例如 `wechat.mi8`、`homeassistant.home` |
+| `source` | 是 | 为适配器实例选择稳定名称，例如 `wechat.mi8`、`homeassistant.home`；其首分段还决定内置图标和点按行为 |
 | `type` | 是 | 优先使用 WPhone 内置事件类型 |
 | `occurredAt` | 是 | 来源侧 Unix 毫秒时间戳，不是秒时间戳 |
 | `payload` | 是 | 始终发送 JSON object，即使自定义事件没有字段也发送 `{}` |
@@ -96,7 +96,21 @@ homeassistant.home
 2. 没有上游 ID 时，在事件首次进入发送队列时生成 UUID。
 3. 不要在每次 HTTP 重试时重新生成 ID。
 
-### 3.3 delivery
+### 3.3 source 的展示映射
+
+Tasker 或其他适配器应直接把上游 App 类型映射为稳定 `source` 前缀。WPhone 取第一个 `.`, `_` 或 `-` 之前的分段，因此每个设备仍可附加实例名，例如 `sms.mi8`。
+
+| 上游 App 类型 | 推荐 `source` | 内置通知头像 | 用户点按 |
+| --- | --- | --- | --- |
+| 微信 | `wechat.<设备名>` | 微信图标 | 打开微信 |
+| 短信 | `sms.<设备名>` | 短信图标 | 打开 WPhone |
+| 电话或电话 App 通知 | `phone.<设备名>` | 电话图标 | 打开 WPhone |
+| 邮件 | `email.<设备名>` | 邮箱图标 | 打开 WPhone |
+| 其他 App | `<适配器>.<设备名>` | WPhone 默认图标 | 打开 WPhone |
+
+该映射适用于 `message.received`、`notification.show` 和 `call.incoming`。`wechat` 是唯一有外部跳转的前缀，目标固定为 `weixin://`；不能在 JSON 中传图片、包名、Deep Link 或 URL 来改变图标、打开目标或 App 图标。`source` 是展示选择和幂等键，不是认证字段。
+
+### 3.4 delivery
 
 | 字段 | 可选值 | 建议 |
 | --- | --- | --- |
@@ -105,7 +119,7 @@ homeassistant.home
 
 `timeSensitive` 不是 Critical Alert。它仍受通知授权、专注模式和 iOS 系统策略控制。`call.incoming` 固定提交时效通知，来电请求中的 `delivery.priority` 仅为兼容字段；它不会创建系统闹铃或 Live Activity。
 
-### 3.4 extensions
+### 3.5 extensions
 
 适配器需要携带 WPhone 不解释的元数据时，使用 `extensions`：
 
@@ -126,8 +140,8 @@ homeassistant.home
 
 | 上游语义 | WPhone type | 必需 payload | 适配建议 |
 | --- | --- | --- | --- |
-| 收到文本、图片或其他消息 | `message.received` | `body` | 将联系人放入 `sender`，会话 ID 放入 `conversationId` |
-| 检测到来电开始 | `call.incoming` | `caller` | 保存本事件的 `id`，结束时作为 `targetId` |
+| 收到文本、图片或其他消息 | `message.received` | `body` | 选择与上游 App 对应的 `source`；将联系人放入 `sender`，会话 ID 放入 `conversationId` |
+| 检测到来电开始 | `call.incoming` | `caller` | 选择与上游 App 对应的 `source`，保存本事件的 `id`，结束时作为 `targetId` |
 | 检测到来电结束或取消 | `call.ended` | `targetId` | `source` 必须与对应 `call.incoming` 相同 |
 | 显示不属于消息/来电的通用提醒 | `notification.show` | `body` | 监控告警、自动化提醒等使用该类型 |
 | 移除一条通用提醒 | `notification.dismiss` | `targetId` | 引用对应 `notification.show` 的 `id` |
@@ -196,7 +210,7 @@ homeassistant.home
 }
 ```
 
-普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`；WPhone 会在提交后 30 秒自动移除未关闭的通知。`call.incoming` 只会提交时效通知：“关闭”移除通知，“打开”启动 WPhone 后进入微信。它不是实际 VoIP 通话，也不传输音频。
+普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`；WPhone 会在提交后 30 秒自动移除未关闭的通知。`call.incoming` 只会提交时效通知：“关闭”移除通知，`wechat` 来源的“打开”会进入微信，其他来源的“打开”只进入 WPhone。它不是实际 VoIP 通话，也不传输音频。
 
 ### 4.3 通用通知与移除
 
@@ -366,7 +380,7 @@ else:
 - 将监听通知、识别事件和发送 HTTP 分成三个独立步骤，便于单独查看错误。
 - 在事件首次出现时生成 `%event_id`、`%occurred_at` 和完整 `%event_body`，重试任务只复用 `%event_body`。
 - 使用 Tasker 的 JSON 结构化能力或 JavaScriptlet 调用 `JSON.stringify`，不要直接拼接通知正文。
-- 将微信普通通知映射为 `message.received`；只有能可靠区分开始和结束时才映射来电事件。
+- 将微信普通通知映射为 `source: "wechat.<设备名>"` 和 `message.received`；短信、电话、邮箱分别使用 `sms`、`phone`、`email` 前缀。只有能可靠区分开始和结束时才映射来电事件。
 - 保存来电开始事件 ID，结束事件的 `payload.targetId` 必须引用它。
 - HTTP `200` 和 `202` 都按成功处理；不要把重复响应当成错误再次生成新事件。
 - 将中继站地址、HTTP 端口和 `source` 做成用户可修改配置，不要写死在事件规则中。

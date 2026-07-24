@@ -453,6 +453,7 @@ enum WPhoneEventContract {
           "post": {
             "operationId": "submitEventV1",
             "summary": "Submit an idempotent event",
+            "description": "The first source segment selects a bundled notification avatar: wechat, sms, phone, and email. Only wechat notifications contain the approved weixin:// destination; every other source opens WPhone.",
             "requestBody": {
               "required": true,
               "content": {
@@ -484,6 +485,13 @@ enum WPhoneEventContract {
             "operationId": "showDebugMessage",
             "parameters": [
               {
+                "name": "source",
+                "in": "query",
+                "required": false,
+                "schema": { "type": "string", "default": "wechat", "maxLength": 64 },
+                "description": "Debug presentation source. Use wechat, sms, phone, email, or wphone."
+              },
+              {
                 "name": "title",
                 "in": "query",
                 "required": false,
@@ -502,13 +510,22 @@ enum WPhoneEventContract {
         "/api/debug/call": {
           "post": {
             "operationId": "submitDebugTimeSensitiveIncomingCallNotification",
-            "description": "Submits a time-sensitive incoming-call local notification. It uses the selected incoming-call sound, provides actions to close it or open WeChat through WPhone, and is automatically cleared after 30 seconds without a close signal.",
-            "parameters": [{
-              "name": "caller",
-              "in": "query",
-              "required": false,
-              "schema": { "type": "string", "maxLength": 80 }
-            }],
+            "description": "Submits a time-sensitive incoming-call local notification. It uses the selected incoming-call sound and is automatically cleared after 30 seconds without a close signal. The wechat source can open WeChat; all other sources open WPhone.",
+            "parameters": [
+              {
+                "name": "source",
+                "in": "query",
+                "required": false,
+                "schema": { "type": "string", "default": "wechat", "maxLength": 64 },
+                "description": "Debug presentation source. Use wechat, sms, phone, email, or wphone."
+              },
+              {
+                "name": "caller",
+                "in": "query",
+                "required": false,
+                "schema": { "type": "string", "maxLength": 80 }
+              }
+            ],
             "responses": { "202": { "$ref": "#/components/responses/Success" } }
           }
         },
@@ -537,7 +554,8 @@ enum WPhoneEventContract {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 64,
-                "pattern": "^[a-z][a-z0-9._-]*$"
+                "pattern": "^[a-z][a-z0-9._-]*$",
+                "description": "Idempotency namespace and notification-presentation key. The segment before the first dot, underscore, or hyphen maps wechat, sms, phone, and email to bundled avatars. Only wechat opens WeChat; other values open WPhone."
               },
               "type": {
                 "oneOf": [

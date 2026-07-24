@@ -483,20 +483,24 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         case ("POST", "/api/debug/message"):
             let title = request.queryValue(named: "title", maximumCharacters: 80) ?? "信息弹出调试"
             let body = request.queryValue(named: "body", maximumCharacters: 240) ?? "WPhone 局域网调试消息"
+            let source = request.queryValue(named: "source", maximumCharacters: 64) ?? "wechat"
             submitNotification(
                 identifier: Self.messageNotificationIdentifier,
                 title: title,
                 body: body,
                 action: "DEBUG_MESSAGE",
-                opensWeChat: true
+                source: source,
+                senderName: title
             )
             sendAccepted(action: "DEBUG_MESSAGE", on: connection)
         case ("POST", "/api/debug/call"):
             let caller = request.queryValue(named: "caller", maximumCharacters: 80) ?? "WPhone 调试来电"
+            let source = request.queryValue(named: "source", maximumCharacters: 64) ?? "wechat"
             submitIncomingCallNotification(
                 caller: caller,
                 action: "DEBUG_TIME_SENSITIVE_INCOMING",
-                notificationIdentifier: Self.callNotificationIdentifier
+                notificationIdentifier: Self.callNotificationIdentifier,
+                source: source
             )
             sendAccepted(
                 action: "DEBUG_TIME_SENSITIVE_INCOMING",
@@ -765,14 +769,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 priority: event.priority,
                 sound: event.sound,
                 threadIdentifier: "app.wephone.vpn.events.\(event.source)",
-                opensWeChat: true
+                source: event.source,
+                senderName: event.payloadString("sender") ?? title,
+                conversationIdentifier: event.payloadString("conversationId")
             )
         case "call.incoming":
             submitIncomingCallNotification(
                 caller: event.payloadString("caller") ?? "未知来电",
                 action: "EVENT_TIME_SENSITIVE_INCOMING",
                 notificationIdentifier: identifier,
-                notificationSound: event.sound
+                notificationSound: event.sound,
+                source: event.source
             )
         case "call.ended":
             guard let targetID = event.payloadString("targetId") else { return }
@@ -805,7 +812,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 action: "EVENT_NOTIFICATION_SHOW",
                 priority: event.priority,
                 sound: event.sound,
-                threadIdentifier: "app.wephone.vpn.events.\(event.source)"
+                threadIdentifier: "app.wephone.vpn.events.\(event.source)",
+                source: event.source,
+                senderName: event.payloadString("title") ?? "WPhone 通知"
             )
         default:
             recordAction("EVENT_LOGGED_ONLY")
@@ -867,7 +876,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         submitIncomingCallNotification(
             caller: "局域网提醒",
             action: "START_RING_TIME_SENSITIVE",
-            notificationIdentifier: Self.ringNotificationIdentifier
+            notificationIdentifier: Self.ringNotificationIdentifier,
+            source: "wechat"
         )
     }
 
@@ -875,17 +885,22 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         caller: String,
         action: String,
         notificationIdentifier: String,
-        notificationSound: String = "default"
+        notificationSound: String = "default",
+        source: String = "wechat"
     ) {
+        let presentation = NotificationRouting.sourcePresentation(for: source)
         submitNotification(
             identifier: notificationIdentifier,
-            title: "微信来电",
-            body: "\(caller) 正在呼叫，点击“打开”进入微信",
+            title: "\(presentation.displayName)来电",
+            body: presentation == .wechat
+                ? "\(caller) 正在呼叫，点击“打开”进入微信"
+                : "\(caller) 正在呼叫，点击通知打开 WPhone",
             action: action,
             priority: "timeSensitive",
             sound: notificationSound,
             threadIdentifier: "app.wephone.vpn.calls",
-            opensWeChat: true,
+            source: source,
+            senderName: "\(presentation.displayName)来电",
             usesIncomingCallSound: true
         )
         armIncomingCallAutoClear(for: notificationIdentifier)
@@ -958,7 +973,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         priority: String = "normal",
         sound: String = "default",
         threadIdentifier: String = "app.wephone.vpn.debug",
-        opensWeChat: Bool = false,
+        source: String? = nil,
+        senderName: String? = nil,
+        conversationIdentifier: String? = nil,
         usesIncomingCallSound: Bool = false
     ) {
         let content = UNMutableNotificationContent()
@@ -972,16 +989,28 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             content.sound = .default
         }
         content.threadIdentifier = threadIdentifier
-        if opensWeChat {
-            NotificationRouting.routeToWeChat(content)
-        }
         if #available(iOS 15.0, *) {
             content.interruptionLevel = priority == "timeSensitive" ? .timeSensitive : .active
         }
 
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: [identifier])
-        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+        let notificationContent: UNNotificationContent
+        if let source {
+            notificationContent = NotificationRouting.contentDecoratedForSource(
+                content,
+                source: source,
+                senderName: senderName ?? title,
+                conversationIdentifier: conversationIdentifier
+            )
+        } else {
+            notificationContent = content
+        }
+        let request = UNNotificationRequest(
+            identifier: identifier,
+            content: notificationContent,
+            trigger: nil
+        )
         center.add(request) { [weak self] error in
             guard let self else { return }
             if let error {
@@ -1071,6 +1100,16 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "maximumRecords": 512,
                 "comparison": "sha256-of-exact-json-body"
             ],
+            "sourcePresentation": [
+                "match": "first segment before dot, underscore, or hyphen",
+                "sources": [
+                    "wechat": ["icon": "Wechat.png", "tap": "open_wechat"],
+                    "sms": ["icon": "SMS.png", "tap": "open_wphone"],
+                    "phone": ["icon": "Phone.png", "tap": "open_wphone"],
+                    "email": ["icon": "Email.png", "tap": "open_wphone"]
+                ],
+                "fallback": ["icon": "app_icon", "tap": "open_wphone"]
+            ],
             "capabilities": [
                 "versioned_events",
                 "persistent_idempotency",
@@ -1080,6 +1119,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "message_notification",
                 "time_sensitive_call_notification",
                 "custom_incoming_call_sound",
+                "source_notification_avatars",
                 "wechat_notification_action"
             ]
         ]
@@ -1399,7 +1439,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         form { display: grid; grid-template-columns: 1fr; gap: 10px; align-content: start; }
         label { display: grid; gap: 6px; color: #4e5a61; font-size: 12px; }
-        input { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid #b8c1c7; border-radius: 5px; background: #fff; color: #182026; font-size: 14px; }
+        input, select { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid #b8c1c7; border-radius: 5px; background: #fff; color: #182026; font-size: 14px; }
         button { min-height: 38px; border: 1px solid #1769aa; border-radius: 5px; padding: 8px 14px; background: #1769aa; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
         button.secondary { background: #fff; color: #ad2f2f; border-color: #c65c5c; }
         button:disabled { opacity: .55; cursor: wait; }
@@ -1428,12 +1468,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
           <h2>弹出调试</h2>
           <div class="actions">
             <form id="messageForm">
+              <label>通知来源<select id="messageSource"><option value="wechat">微信</option><option value="sms">短信</option><option value="phone">电话</option><option value="email">邮箱</option><option value="wphone">WPhone（无来源图标）</option></select></label>
               <label>信息标题<input id="messageTitle" value="信息弹出调试" maxlength="80"></label>
               <label>信息内容<input id="messageBody" value="WPhone 局域网调试消息" maxlength="240"></label>
               <button type="submit">弹出信息</button>
             </form>
             <form id="callForm">
-              <label>来电名称<input id="caller" value="微信来电" maxlength="80"></label>
+              <label>通知来源<select id="callSource"><option value="wechat">微信</option><option value="sms">短信</option><option value="phone">电话</option><option value="email">邮箱</option><option value="wphone">WPhone（无来源图标）</option></select></label>
+              <label>来电名称<input id="caller" value="联系人" maxlength="80"></label>
               <button type="submit">时效来电通知</button>
               <button id="stopButton" class="secondary" type="button">停止并清除</button>
             </form>
@@ -1519,12 +1561,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
         byId('messageForm').addEventListener('submit', event => {
           event.preventDefault();
-          const query = new URLSearchParams({ title: byId('messageTitle').value, body: byId('messageBody').value });
+          const query = new URLSearchParams({ source: byId('messageSource').value, title: byId('messageTitle').value, body: byId('messageBody').value });
           runAction(`/api/debug/message?${query}`, '信息通知已提交');
         });
         byId('callForm').addEventListener('submit', event => {
           event.preventDefault();
-          const query = new URLSearchParams({ caller: byId('caller').value });
+          const query = new URLSearchParams({ source: byId('callSource').value, caller: byId('caller').value });
           runAction(`/api/debug/call?${query}`, '时效来电通知已提交');
         });
         byId('stopButton').addEventListener('click', () => runAction('/api/debug/stop', '调试通知已清除'));

@@ -19,6 +19,10 @@
 		A10000000000000000000012 /* WPhoneRelayChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* WPhoneRelayChannel.swift */; };
 		A10000000000000000000013 /* WPhoneIncomingCall.wav in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* WPhoneIncomingCall.wav */; };
 		A10000000000000000000014 /* WPhoneIncomingCall.wav in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* WPhoneIncomingCall.wav */; };
+		A10000000000000000000015 /* Wechat.png in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* Wechat.png */; };
+		A10000000000000000000016 /* SMS.png in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* SMS.png */; };
+		A10000000000000000000017 /* Phone.png in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* Phone.png */; };
+		A10000000000000000000018 /* Email.png in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* Email.png */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -60,6 +64,10 @@
 		A20000000000000000000012 /* NotificationRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRouting.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* WPhoneRelayChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WPhoneRelayChannel.swift; sourceTree = "<group>"; };
 		A20000000000000000000015 /* WPhoneIncomingCall.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = WPhoneIncomingCall.wav; sourceTree = "<group>"; };
+		A20000000000000000000016 /* Wechat.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = NotificationIcons/Wechat.png; sourceTree = "<group>"; };
+		A20000000000000000000017 /* SMS.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = NotificationIcons/SMS.png; sourceTree = "<group>"; };
+		A20000000000000000000018 /* Phone.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = NotificationIcons/Phone.png; sourceTree = "<group>"; };
+		A20000000000000000000019 /* Email.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = NotificationIcons/Email.png; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -160,6 +168,10 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000015 /* WPhoneIncomingCall.wav */,
+				A20000000000000000000016 /* Wechat.png */,
+				A20000000000000000000017 /* SMS.png */,
+				A20000000000000000000018 /* Phone.png */,
+				A20000000000000000000019 /* Email.png */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -254,6 +266,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000014 /* WPhoneIncomingCall.wav in Resources */,
+				A10000000000000000000015 /* Wechat.png in Resources */,
+				A10000000000000000000016 /* SMS.png in Resources */,
+				A10000000000000000000017 /* Phone.png in Resources */,
+				A10000000000000000000018 /* Email.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
