@@ -216,7 +216,7 @@ enum NotificationRouting {
         )
         let intent = INSendMessageIntent(
             recipients: nil,
-            outgoingMessageType: .outgoing,
+            outgoingMessageType: .outgoingMessageText,
             content: content.body,
             speakableGroupName: nil,
             conversationIdentifier: conversationIdentifier,
