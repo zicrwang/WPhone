@@ -113,7 +113,7 @@ private struct ContentView: View {
                 Section("AlarmKit") {
                     LabeledContent("权限", value: tunnel.alarmAuthorizationStatus)
                     LabeledContent("测试", value: tunnel.alarmTestStatus)
-                    LabeledContent("时效通知", value: tunnel.notificationTimeSensitiveStatus)
+                    LabeledContent("横幅级别", value: "普通")
                     LabeledContent("横幅风格", value: tunnel.notificationBannerStyle)
                     LabeledContent("最长响铃", value: "50秒")
 

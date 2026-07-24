@@ -100,10 +100,10 @@ homeassistant.home
 
 | 字段 | 可选值 | 建议 |
 | --- | --- | --- |
-| `priority` | `normal`、`timeSensitive` | 普通消息使用 `normal`；明确需要及时提醒的来电使用 `timeSensitive` |
-| `sound` | `default`、`none` | 普通事件中 `default` 使用系统声；来电横幅中 `default` 使用 App 当前选择的最长 10 秒铃声；`none` 关闭本地通知声音 |
+| `priority` | `normal`、`timeSensitive` | 默认使用 `normal`；来电兜底横幅固定为普通 `active` 级别 |
+| `sound` | `default`、`none` | 普通事件中 `default` 使用系统声；来电横幅中 `default` 使用 App 当前选择的最长 29 秒铃声；`none` 关闭本地通知声音 |
 
-`timeSensitive` 不是 Critical Alert。它仍受通知授权、专注模式和 iOS 系统策略控制。
+`timeSensitive` 不是 Critical Alert。它仍受通知授权、专注模式和 iOS 系统策略控制。该值只影响 `message.received` 和 `notification.show`；`call.incoming` 为避免系统“时效通知”标签而固定使用普通 `active` 横幅，并由 AlarmKit 承担系统级来电提醒。
 
 ### 3.4 extensions
 
@@ -133,7 +133,7 @@ homeassistant.home
 | 移除一条通用提醒 | `notification.dismiss` | `targetId` | 引用对应 `notification.show` 的 `id` |
 | 暂无内置语义的厂商事件 | `custom.<vendor>.<name>` | 无 | 当前只写日志，不能期待弹出通知 |
 
-`conversationId`、`mediaKind` 和 `callKind` 当前只是保留的结构化元数据。AlarmKit 不区分音频和视频来电，也不会建立媒体通道。每个 `call.incoming` 会同时调度 AlarmKit 和 time-sensitive 本地通知；这是亮屏时 AlarmKit 没有正确展开时的顶部横幅兜底，不需要 APNs。发送端没有发出 `call.ended` 时，WPhone 会在提醒触发 50 秒后自动停止并清理横幅。
+`conversationId`、`mediaKind` 和 `callKind` 当前只是保留的结构化元数据。AlarmKit 不区分音频和视频来电，也不会建立媒体通道。每个 `call.incoming` 会同时调度 AlarmKit 和普通 `active` 本地通知；这是亮屏时 AlarmKit 没有正确展开时的顶部横幅兜底，不需要 APNs，也不会显示系统“时效通知”标签。发送端没有发出 `call.ended` 时，WPhone 会在提醒触发 50 秒后自动停止并清理横幅。
 
 ### 4.1 消息事件
 
@@ -175,7 +175,7 @@ homeassistant.home
     "callKind": "voice"
   },
   "delivery": {
-    "priority": "timeSensitive",
+    "priority": "normal",
     "sound": "default"
   }
 }
@@ -412,7 +412,7 @@ GET http://192.168.2.99:18080/health
 7. 使用 `/api/logs?cursor=0` 查看 `AlarmKit alarm scheduled`，或包含 NSError domain/code 的 AlarmKit 提交错误。
 8. 检查 iOS 闹钟权限、通知设置和声音设置。
 
-HTTP `202` 只表示 WPhone 接受并提交了本地处理请求。iOS 最终是否展示 AlarmKit/通知、播放声音或以 time-sensitive 方式呈现仍由系统决定。
+HTTP `202` 只表示 WPhone 接受并提交了本地处理请求。iOS 最终是否展示 AlarmKit/通知、播放声音或采用请求的中断级别仍由系统决定。
 
 ## 10. 安全边界
 

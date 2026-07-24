@@ -144,7 +144,7 @@ final class TunnelController: NSObject, ObservableObject {
             let maximumDuration = NotificationRouting.maximumIncomingCallSoundDurationSeconds(
                 for: kind
             )
-            guard durationSeconds <= maximumDuration + 0.02 else {
+            guard durationSeconds <= maximumDuration else {
                 throw IncomingCallSoundImportError.tooLong(
                     maximumSeconds: Int(maximumDuration)
                 )

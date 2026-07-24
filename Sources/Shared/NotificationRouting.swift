@@ -18,7 +18,7 @@ enum NotificationRouting {
     static let bundledIncomingCallSoundName = "WPhoneIncomingCall.wav"
     static let bundledIncomingCallSoundDurationSeconds = 10.0
     static let maximumAlarmSoundDurationSeconds = 60.0
-    static let maximumNotificationSoundDurationSeconds = 10.0
+    static let maximumNotificationSoundDurationSeconds = 29.0
 
     private static let appGroupIdentifier = "group.3970029fa0cfcf6d.1"
     private static let alarmCustomSoundNameKey = "app.wephone.vpn.sound.alarm.custom-name"

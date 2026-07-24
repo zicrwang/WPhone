@@ -505,7 +505,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 extra: [
                     "mode": "alarmkit",
                     "alarmKit": true,
-                    "timeSensitiveBanner": true,
+                    "timeSensitiveBanner": false,
+                    "bannerInterruptionLevel": "active",
                     "sound": NotificationRouting.incomingCallAlarmSoundName,
                     "notificationSound": NotificationRouting.incomingCallNotificationSoundName,
                     "openBehavior": "open-wphone-then-wechat"
@@ -897,7 +898,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             title: "微信来电",
             body: "\(caller) 正在呼叫，点击“打开”进入微信",
             action: "\(action)_BANNER",
-            priority: "timeSensitive",
+            priority: "normal",
             sound: notificationSound,
             threadIdentifier: "app.wephone.vpn.calls",
             opensWeChat: true,
@@ -913,7 +914,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             log.info("\(action) AlarmKit alarm scheduled key=\(key) id=\(alarmID.uuidString)")
         case .scheduleFailed(let key, let message):
             recordError("AlarmKit schedule failed key=\(key): \(message)")
-            log.info("Time-sensitive call banner was submitted independently key=\(key)")
+            log.info("Active call banner was submitted independently key=\(key)")
         case .stopped(let key):
             recordAction("ALARMKIT_STOPPED")
             log.info("AlarmKit alarm stopped key=\(key)")
@@ -928,7 +929,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         title: String,
         body: String,
         action: String,
-        priority: String = "timeSensitive",
+        priority: String = "normal",
         sound: String = "default",
         threadIdentifier: String = "app.wephone.vpn.debug",
         opensWeChat: Bool = false,
@@ -954,8 +955,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         } else if opensWeChat {
             NotificationRouting.routeToWeChat(content)
         }
-        if #available(iOS 15.0, *), priority == "timeSensitive" {
-            content.interruptionLevel = .timeSensitive
+        if #available(iOS 15.0, *) {
+            content.interruptionLevel = priority == "timeSensitive" ? .timeSensitive : .active
         }
 
         let center = UNUserNotificationCenter.current()
@@ -1120,6 +1121,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "soundSetting": state.notificationSoundSetting,
                 "timeSensitiveSetting": state.notificationTimeSensitiveSetting,
                 "alertStyle": state.notificationAlertStyle,
+                "incomingCallInterruptionLevel": "active",
                 "incomingCallSound": NotificationRouting.incomingCallNotificationSoundName,
                 "incomingCallSoundAvailable": NotificationRouting.hasIncomingCallSound(.notification),
                 "incomingCallSoundCustom": NotificationRouting.isUsingCustomIncomingCallSound(
