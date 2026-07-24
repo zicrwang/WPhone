@@ -1,6 +1,7 @@
 import AlarmKit
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 import UserNotifications
 
 @main
@@ -104,6 +105,7 @@ private struct ContentView: View {
     @StateObject private var tunnel = TunnelController()
     @State private var logText = ""
     @State private var showingLog = false
+    @State private var showingSoundImporter = false
 
     var body: some View {
         NavigationView {
@@ -113,6 +115,7 @@ private struct ContentView: View {
                     LabeledContent("测试", value: tunnel.alarmTestStatus)
                     LabeledContent("时效通知", value: tunnel.notificationTimeSensitiveStatus)
                     LabeledContent("横幅风格", value: tunnel.notificationBannerStyle)
+                    LabeledContent("最长响铃", value: "50秒")
 
                     HStack(spacing: 12) {
                         Button {
@@ -134,6 +137,37 @@ private struct ContentView: View {
                         openNotificationSettings()
                     } label: {
                         Label("通知设置", systemImage: "bell.badge.fill")
+                    }
+                }
+
+                Section("来电铃声") {
+                    LabeledContent("当前") {
+                        Text(tunnel.incomingCallSoundStatus)
+                            .multilineTextAlignment(.trailing)
+                            .lineLimit(2)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button {
+                            showingSoundImporter = true
+                        } label: {
+                            Label("选择铃声", systemImage: "square.and.arrow.down")
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button {
+                            tunnel.restoreBundledIncomingCallSound()
+                        } label: {
+                            Label("恢复内置", systemImage: "arrow.counterclockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!NotificationRouting.isUsingCustomIncomingCallSound)
+                    }
+
+                    if let soundError = tunnel.incomingCallSoundError {
+                        Text(soundError)
+                            .foregroundStyle(.red)
+                            .font(.footnote)
                     }
                 }
 
@@ -212,6 +246,19 @@ private struct ContentView: View {
                         logText = SharedLogger.shared.recentLog()
                     }
                 }
+            }
+        }
+        .fileImporter(
+            isPresented: $showingSoundImporter,
+            allowedContentTypes: [.audio],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                Task { await tunnel.installIncomingCallSound(from: url) }
+            case .failure(let error):
+                tunnel.recordIncomingCallSoundImportError(error)
             }
         }
     }

@@ -916,6 +916,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         case .stopped(let key):
             recordAction("ALARMKIT_STOPPED")
             log.info("AlarmKit alarm stopped key=\(key)")
+        case .timedOut(let key):
+            recordAction("ALARMKIT_TIMED_OUT")
+            log.info("AlarmKit alarm auto-stopped after 50 seconds key=\(key)")
         }
     }
 
@@ -1135,8 +1138,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "caller": jsonValue(activeAlarm?.caller),
                 "scheduledAt": jsonValue(activeAlarm.map { dateFormatter.string(from: $0.scheduledAt) }),
                 "triggerDelaySeconds": AlarmKitCoordinator.triggerDelaySeconds,
+                "maximumAlertDurationSeconds": WPhoneAlarmConfiguration.maximumAlertDurationSeconds,
                 "sound": NotificationRouting.incomingCallSoundName,
                 "soundAvailable": NotificationRouting.hasIncomingCallSound(),
+                "soundCustom": NotificationRouting.isUsingCustomIncomingCallSound,
+                "soundDurationSeconds": NotificationRouting.incomingCallSoundDurationSeconds,
+                "expiresAt": jsonValue(
+                    activeAlarm.flatMap { $0.expiresAt }.map { dateFormatter.string(from: $0) }
+                ),
                 "openBehavior": "open-wphone-then-wechat"
             ],
             "events": [
@@ -1537,6 +1546,7 @@ private final class AlarmKitCoordinator {
         case scheduled(action: String, key: String, alarmID: UUID)
         case scheduleFailed(key: String, message: String)
         case stopped(key: String)
+        case timedOut(key: String)
     }
 
     private let manager = AlarmManager.shared
@@ -1567,11 +1577,24 @@ private final class AlarmKitCoordinator {
         let id = UUID()
         let operation = beginOperation(id: id, key: key)
         cancelPersistedAlarm()
+        let triggerDate = Date.now.addingTimeInterval(
+            TimeInterval(Self.triggerDelaySeconds)
+        )
+        let expiresAt = triggerDate.addingTimeInterval(
+            WPhoneAlarmConfiguration.maximumAlertDurationSeconds
+        )
+        armAutomaticStop(
+            id: id,
+            key: key,
+            notificationIdentifier: notificationIdentifier,
+            expiresAt: expiresAt,
+            operation: operation
+        )
         let configuration = WPhoneAlarmConfiguration.make(
             id: id,
             caller: caller,
             callKey: key,
-            triggerDate: Date.now.addingTimeInterval(TimeInterval(Self.triggerDelaySeconds))
+            triggerDate: triggerDate
         )
         let hostAuthorization = WPhoneAlarmStore.hostAuthorization() ?? "unknown"
         let extensionAuthorization = extensionAuthorizationState
@@ -1588,6 +1611,7 @@ private final class AlarmKitCoordinator {
                     callKey: key,
                     caller: caller,
                     scheduledAt: Date(),
+                    expiresAt: expiresAt,
                     notificationIdentifier: notificationIdentifier
                 )
                 guard self?.saveIfCurrent(record, operation: operation) == true else {
@@ -1619,6 +1643,7 @@ private final class AlarmKitCoordinator {
             return false
         }
         if let record, record.callKey == key {
+            invalidateCurrentOperation()
             stop(record)
         }
         if let pending {
@@ -1631,6 +1656,9 @@ private final class AlarmKitCoordinator {
 
     func stopAll() {
         let pending = cancelPending()
+        if WPhoneAlarmStore.activeAlarm() != nil {
+            invalidateCurrentOperation()
+        }
         cancelPersistedAlarm()
         if let pending {
             try? manager.stop(id: pending.id)
@@ -1648,6 +1676,63 @@ private final class AlarmKitCoordinator {
     private func cancelPersistedAlarm() {
         guard let record = WPhoneAlarmStore.activeAlarm() else { return }
         stop(record)
+    }
+
+    private func armAutomaticStop(
+        id: UUID,
+        key: String,
+        notificationIdentifier: String,
+        expiresAt: Date,
+        operation: Int
+    ) {
+        let delay = max(0, expiresAt.timeIntervalSinceNow)
+        Task { [weak self] in
+            try? await Task.sleep(
+                nanoseconds: UInt64(delay * 1_000_000_000)
+            )
+            guard !Task.isCancelled,
+                  let self else {
+                return
+            }
+            let didStopAlarm = expireIfCurrent(
+                id: id,
+                notificationIdentifier: notificationIdentifier,
+                operation: operation
+            )
+            if didStopAlarm {
+                eventHandler(.timedOut(key: key))
+            }
+        }
+    }
+
+    private func expireIfCurrent(
+        id: UUID,
+        notificationIdentifier: String,
+        operation: Int
+    ) -> Bool {
+        generationLock.lock()
+        defer { generationLock.unlock() }
+        guard generation == operation else { return false }
+
+        generation += 1
+        let wasPending = pendingAlarm?.id == id
+        if wasPending {
+            pendingAlarm = nil
+        }
+        let record = WPhoneAlarmStore.activeAlarm().flatMap { $0.id == id ? $0 : nil }
+        if record != nil || wasPending {
+            try? manager.stop(id: id)
+            try? manager.cancel(id: id)
+        }
+        WPhoneAlarmStore.removeNotification(identifier: notificationIdentifier)
+        WPhoneAlarmStore.clear(alarmID: id)
+        return record != nil || wasPending
+    }
+
+    private func invalidateCurrentOperation() {
+        generationLock.lock()
+        generation += 1
+        generationLock.unlock()
     }
 
     private func beginOperation(id: UUID, key: String) -> Int {

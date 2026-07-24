@@ -101,7 +101,7 @@ homeassistant.home
 | 字段 | 可选值 | 建议 |
 | --- | --- | --- |
 | `priority` | `normal`、`timeSensitive` | 普通消息使用 `normal`；明确需要及时提醒的来电使用 `timeSensitive` |
-| `sound` | `default`、`none` | 普通事件中 `default` 使用系统声；来电横幅中 `default` 使用内置 `WPhoneIncomingCall.wav`；`none` 关闭本地通知声音 |
+| `sound` | `default`、`none` | 普通事件中 `default` 使用系统声；来电横幅中 `default` 使用 App 当前选择的最长 10 秒铃声；`none` 关闭本地通知声音 |
 
 `timeSensitive` 不是 Critical Alert。它仍受通知授权、专注模式和 iOS 系统策略控制。
 
@@ -133,7 +133,7 @@ homeassistant.home
 | 移除一条通用提醒 | `notification.dismiss` | `targetId` | 引用对应 `notification.show` 的 `id` |
 | 暂无内置语义的厂商事件 | `custom.<vendor>.<name>` | 无 | 当前只写日志，不能期待弹出通知 |
 
-`conversationId`、`mediaKind` 和 `callKind` 当前只是保留的结构化元数据。AlarmKit 不区分音频和视频来电，也不会建立媒体通道。每个 `call.incoming` 会同时调度 AlarmKit 和 time-sensitive 本地通知；这是亮屏时 AlarmKit 没有正确展开时的顶部横幅兜底，不需要 APNs。
+`conversationId`、`mediaKind` 和 `callKind` 当前只是保留的结构化元数据。AlarmKit 不区分音频和视频来电，也不会建立媒体通道。每个 `call.incoming` 会同时调度 AlarmKit 和 time-sensitive 本地通知；这是亮屏时 AlarmKit 没有正确展开时的顶部横幅兜底，不需要 APNs。发送端没有发出 `call.ended` 时，WPhone 会在提醒触发 50 秒后自动停止并清理横幅。
 
 ### 4.1 消息事件
 
@@ -196,7 +196,7 @@ homeassistant.home
 }
 ```
 
-普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`。WPhone 会为 `call.incoming` 调度 iOS 26 AlarmKit 系统提醒：“拒绝”停止提醒，“接听”启动 WPhone 后进入微信。它不是实际 VoIP 通话，也不传输音频；新的来电提醒会替换上一条活动提醒。
+普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`；WPhone 会在触发 50 秒后自动结束未关闭的提醒。WPhone 会为 `call.incoming` 调度 iOS 26 AlarmKit 系统提醒：“拒绝”停止提醒，“接听”启动 WPhone 后进入微信。它不是实际 VoIP 通话，也不传输音频；新的来电提醒会替换上一条活动提醒。
 
 ### 4.3 通用通知与移除
 

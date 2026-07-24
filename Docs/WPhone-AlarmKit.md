@@ -23,9 +23,10 @@ Tasker/局域网软件
        -> 同时提交 time-sensitive 本地通知顶部横幅
        关闭 -> 停止并取消提醒
        打开 -> 停止提醒 -> 唤醒 WPhone -> 打开 weixin://
+       50 秒内无关闭信号 -> 自动停止提醒并清理横幅
 ```
 
-WPhone 当前只保留一条活动 AlarmKit 来电。新来电会停止上一条；`call.ended` 只有在 `source + targetId` 与活动来电匹配时才停止它。`POST /api/debug/stop` 和 `POST /STOP_RING` 会停止活动提醒。停止 VPN 会断开中继长连接，但不会取消已经调度给系统的提醒。
+WPhone 当前只保留一条活动 AlarmKit 来电。新来电会停止上一条；`call.ended` 只有在 `source + targetId` 与活动来电匹配时才停止它。`POST /api/debug/stop` 和 `POST /STOP_RING` 会停止活动提醒。没有收到这些关闭信号且用户也没有操作时，Packet Tunnel 会在提醒触发 50 秒后调用 AlarmKit `stop/cancel` 并移除横幅。停止 VPN 会断开中继长连接，但不会立即取消已经调度给系统的提醒；由于 50 秒清理由 Packet Tunnel 进程执行，超时期间应保持 VPN 运行。
 
 “接听”必须经过主 App，因为 Packet Tunnel Extension 受 App Extension API 限制，不能调用 `UIApplication`。AlarmKit 的 `LiveActivityIntent` 负责在用户点击后唤醒 WPhone，WPhone 再打开微信。该过程需要一次明确的用户点击，不能无人值守启动微信。
 
@@ -42,7 +43,9 @@ Apple 的 [AlarmKit 示例](https://developer.apple.com/documentation/AlarmKit/s
 
 ## 自定义声音
 
-AlarmKit 的 `sound` 使用 `AlertConfiguration.AlertSound.named("WPhoneIncomingCall.wav")`，本地通知使用同名 `UNNotificationSound`。工程把 [WPhoneIncomingCall.wav](../Resources/WPhoneIncomingCall.wav) 同时加入主 App 和 Packet Tunnel Extension 的 Resources build phase，保证从任一进程调度时都能在当前 main bundle 找到文件。可直接用自己的 5 秒声音覆盖该文件；本地通知声音必须少于 30 秒。找不到资源时两条路径都回退到系统默认声音。
+AlarmKit 的 `sound` 使用 `AlertConfiguration.AlertSound.named(...)`，本地通知使用同名 `UNNotificationSound`。工程把 [WPhoneIncomingCall.wav](../Resources/WPhoneIncomingCall.wav) 同时加入主 App 和 Packet Tunnel Extension 的 Resources build phase；内置文件为精确 10 秒、单声道 22.05 kHz Linear PCM WAV。
+
+主 App 的“来电铃声”区域可以从“文件”选择 WAV、CAF 或 AIFF，限制为 10 秒和 20 MB，并校验 Linear PCM、IMA4、µLaw 或 aLaw 编码。文件存入 App Group 的 `Library/Sounds`，普通通知可直接读取；AlarmKit 调度前还会复制到当前主 App 或 Packet Tunnel 数据容器的 `Library/Sounds`。点击“恢复内置”会删除运行时选择。自定义资源丢失或复制失败时回退到内置声音，内置资源也缺失时再回退到系统默认声音。
 
 ## 接口
 
@@ -93,9 +96,13 @@ POST /api/debug/stop
 | `activeCallKey` | `source:id`，调试或旧接口使用固定键 |
 | `caller` | 当前来电名称 |
 | `scheduledAt` | ISO 8601 调度时间 |
+| `expiresAt` | 没有关闭信号时自动停止的 ISO 8601 时间 |
 | `triggerDelaySeconds` | 当前固定为 1 |
+| `maximumAlertDurationSeconds` | 当前固定为 50 |
 | `sound` | AlarmKit 自定义声音文件名 |
-| `soundAvailable` | Packet Tunnel bundle 是否能找到自定义声音 |
+| `soundAvailable` | 当前进程或 App Group 是否能找到来电声音 |
+| `soundCustom` | 当前是否使用页面导入的铃声 |
+| `soundDurationSeconds` | 当前铃声时长，最大为 10 |
 | `openBehavior` | 当前为 `open-wphone-then-wechat` |
 
 `notifications` 对象的 `timeSensitiveSetting` 应为 `enabled`；`alertStyle` 为 `persistent` 表示用户选择了持续横幅，为 `temporary` 表示临时横幅。应用只能读取这两个系统设置，不能修改。
@@ -107,14 +114,15 @@ POST /api/debug/stop
 ## 真机验收
 
 1. 安装重签后的完整 IPA，确认 `PacketTunnel.appex` 一同安装。
-2. 启动 WPhone，允许通知、时效通知、AlarmKit 和 VPN 权限；从“通知设置”进入系统页，打开横幅和声音，需要时把横幅风格改为“持续”。
+2. 启动 WPhone，允许通知、时效通知、AlarmKit 和 VPN 权限；从“通知设置”进入系统页，打开横幅和声音，需要时把横幅风格改为“持续”。可在“来电铃声”选择一份不超过 10 秒的受支持音频。
 3. 暂不连接 VPN，先点击主 App 的 **Test Alarm**。若约 1 秒后响铃，说明主 App 权限、用途说明和 AlarmKit 配置有效。
 4. 点击 **Stop Alarm**，设置中继站 `192.168.2.99:18081`，再连接 VPN。
 5. 在 Armbian 请求 `http://192.168.2.99:18080/health`，确认 `providers` 为 `1`。
 6. 向中继站发送 `call.incoming`，确认约 1 秒内出现系统提醒并播放自定义声音；锁定状态验收系统锁屏闹铃界面，已解锁且正在使用时验收 Dynamic Island 或 time-sensitive 顶部横幅，并确认 WPhone 没有自行显示全屏页面。
 7. 点击“拒绝”，确认提醒立即停止。
 8. 再次触发并点击“接听”，确认提醒停止、WPhone 被唤醒并进入微信。
-9. 查看实时日志。成功应出现 `PacketTunnel AlarmKit schedule attempt` 和 `AlarmKit alarm scheduled`；失败应提供真实的系统 domain/code，而不是旧版的授权预检查错误。
+9. 再触发一次且不操作、不发送 `call.ended`，确认触发 50 秒后 AlarmKit 和横幅被自动清理，日志出现 `AlarmKit alarm auto-stopped after 50 seconds`。
+10. 查看实时日志。成功应出现 `PacketTunnel AlarmKit schedule attempt` 和 `AlarmKit alarm scheduled`；失败应提供真实的系统 domain/code，而不是旧版的授权预检查错误。
 
 AlarmKit 的视觉样式、顶部提醒的展开程度、声音、持续时间和系统调度由 iOS 控制。它会越过静音和专注模式，但不能保证 VPN Extension 永久存活。Apple 的公开示例从主 App 调度 AlarmKit，并没有明确支持任意 App Extension 调度。主 App 测试成功只证明 AlarmKit 基础配置正确；Packet Tunnel 路径仍必须以上述 iOS 26.x 真机结果作为最终验收依据。
 

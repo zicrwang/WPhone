@@ -1,4 +1,5 @@
 import AlarmKit
+import AVFoundation
 import Combine
 import Foundation
 import NetworkExtension
@@ -17,11 +18,14 @@ final class TunnelController: NSObject, ObservableObject {
     @Published private(set) var alarmAuthorizationStatus = "unknown"
     @Published private(set) var notificationTimeSensitiveStatus = "unknown"
     @Published private(set) var notificationBannerStyle = "unknown"
+    @Published private(set) var incomingCallSoundStatus = "内置铃声 · 10秒"
+    @Published private(set) var incomingCallSoundError: String?
     @Published var relayHost = TunnelController.defaultRelayHost
     @Published var relayPort = String(TunnelController.defaultRelayPort)
 
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
+    private var alarmTestTimeoutTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -38,6 +42,7 @@ final class TunnelController: NSObject, ObservableObject {
     }
 
     deinit {
+        alarmTestTimeoutTask?.cancel()
         if let statusObserver {
             NotificationCenter.default.removeObserver(statusObserver)
         }
@@ -71,6 +76,96 @@ final class TunnelController: NSObject, ObservableObject {
         case .alert: notificationBannerStyle = "持续"
         @unknown default: notificationBannerStyle = "未知"
         }
+    }
+
+    func refreshIncomingCallSoundStatus() {
+        let duration = NotificationRouting.incomingCallSoundDurationSeconds
+        let formattedDuration = duration.rounded() == duration
+            ? String(Int(duration))
+            : String(format: "%.1f", duration)
+        if let originalName = NotificationRouting.incomingCallSoundOriginalName {
+            incomingCallSoundStatus = "\(originalName) · \(formattedDuration)秒"
+        } else {
+            incomingCallSoundStatus = "内置铃声 · \(formattedDuration)秒"
+        }
+    }
+
+    func installIncomingCallSound(from url: URL) async {
+        incomingCallSoundError = nil
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessed {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        do {
+            let fileExtension = url.pathExtension.lowercased()
+            guard ["wav", "caf", "aiff"].contains(fileExtension) else {
+                throw IncomingCallSoundImportError.unsupportedFileType
+            }
+            let values = try url.resourceValues(forKeys: [.fileSizeKey])
+            if let fileSize = values.fileSize, fileSize > 20 * 1_024 * 1_024 {
+                throw IncomingCallSoundImportError.fileTooLarge
+            }
+
+            let audioFile = try AVAudioFile(forReading: url)
+            let settings = audioFile.fileFormat.settings
+            let formatID = (settings[AVFormatIDKey] as? NSNumber)?.uint32Value
+            let supportedFormatIDs: Set<UInt32> = [
+                kAudioFormatLinearPCM,
+                kAudioFormatAppleIMA4,
+                kAudioFormatULaw,
+                kAudioFormatALaw
+            ]
+            guard let formatID, supportedFormatIDs.contains(formatID) else {
+                throw IncomingCallSoundImportError.unsupportedEncoding
+            }
+            let sampleRate = audioFile.processingFormat.sampleRate
+            let durationSeconds = sampleRate > 0
+                ? Double(audioFile.length) / sampleRate
+                : 0
+            guard durationSeconds.isFinite, durationSeconds > 0 else {
+                throw IncomingCallSoundImportError.unreadableAudio
+            }
+            guard durationSeconds <= NotificationRouting.maximumIncomingCallSoundDurationSeconds + 0.02 else {
+                throw IncomingCallSoundImportError.tooLong
+            }
+
+            _ = try NotificationRouting.installCustomIncomingCallSound(
+                from: url,
+                originalName: url.lastPathComponent,
+                duration: durationSeconds
+            )
+            refreshIncomingCallSoundStatus()
+            SharedLogger.shared.info(
+                "Custom incoming-call sound installed name=\(url.lastPathComponent) " +
+                    "duration=\(String(format: "%.3f", durationSeconds))"
+            )
+        } catch {
+            incomingCallSoundError = error.localizedDescription
+            SharedLogger.shared.error(
+                "Custom incoming-call sound import failed: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    func restoreBundledIncomingCallSound() {
+        do {
+            try NotificationRouting.restoreBundledIncomingCallSound()
+            incomingCallSoundError = nil
+            refreshIncomingCallSoundStatus()
+            SharedLogger.shared.info("Bundled incoming-call sound restored")
+        } catch {
+            incomingCallSoundError = error.localizedDescription
+            SharedLogger.shared.error(
+                "Unable to restore bundled incoming-call sound: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    func recordIncomingCallSoundImportError(_ error: Error) {
+        incomingCallSoundError = error.localizedDescription
     }
 
     func requestAlarmAuthorization() async {
@@ -121,11 +216,15 @@ final class TunnelController: NSObject, ObservableObject {
         let id = UUID()
         let caller = "WPhone 主 App 测试"
         let callKey = "main-app-test"
+        let triggerDate = Date.now.addingTimeInterval(1)
+        let expiresAt = triggerDate.addingTimeInterval(
+            WPhoneAlarmConfiguration.maximumAlertDurationSeconds
+        )
         let configuration = WPhoneAlarmConfiguration.make(
             id: id,
             caller: caller,
             callKey: callKey,
-            triggerDate: Date.now.addingTimeInterval(1)
+            triggerDate: triggerDate
         )
         alarmTestStatus = "Scheduling"
         SharedLogger.shared.debug(
@@ -138,8 +237,10 @@ final class TunnelController: NSObject, ObservableObject {
                 id: id,
                 callKey: callKey,
                 caller: caller,
-                scheduledAt: Date()
+                scheduledAt: Date(),
+                expiresAt: expiresAt
             ))
+            armAlarmKitTestTimeout(alarmID: id, expiresAt: expiresAt)
             alarmTestStatus = "Scheduled"
             lastError = nil
             SharedLogger.shared.info("Main app AlarmKit alarm scheduled id=\(id.uuidString)")
@@ -152,6 +253,8 @@ final class TunnelController: NSObject, ObservableObject {
     }
 
     func stopAlarmKitTest(logResult: Bool = true) {
+        alarmTestTimeoutTask?.cancel()
+        alarmTestTimeoutTask = nil
         guard let record = WPhoneAlarmStore.activeAlarm() else {
             if logResult {
                 alarmTestStatus = "No active alarm"
@@ -169,7 +272,33 @@ final class TunnelController: NSObject, ObservableObject {
         }
     }
 
+    private func armAlarmKitTestTimeout(alarmID: UUID, expiresAt: Date) {
+        alarmTestTimeoutTask?.cancel()
+        let delay = max(0, expiresAt.timeIntervalSinceNow)
+        alarmTestTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(
+                nanoseconds: UInt64(delay * 1_000_000_000)
+            )
+            guard !Task.isCancelled,
+                  let self,
+                  let record = WPhoneAlarmStore.activeAlarm(),
+                  record.id == alarmID else {
+                return
+            }
+            try? AlarmManager.shared.stop(id: alarmID)
+            try? AlarmManager.shared.cancel(id: alarmID)
+            WPhoneAlarmStore.removeNotification(for: record)
+            WPhoneAlarmStore.clear(alarmID: alarmID)
+            alarmTestStatus = "Timed out (50s)"
+            alarmTestTimeoutTask = nil
+            SharedLogger.shared.info(
+                "Main app AlarmKit alarm auto-stopped after 50 seconds id=\(alarmID.uuidString)"
+            )
+        }
+    }
+
     func load() async {
+        refreshIncomingCallSoundStatus()
         do {
             let managers = try await loadManagers()
             manager = managers.first { current in
@@ -319,6 +448,29 @@ private enum RelayConfigurationError: LocalizedError {
             return "中继站地址不能为空。"
         case .invalidPort:
             return "中继站端口必须是 1 到 65535。"
+        }
+    }
+}
+
+private enum IncomingCallSoundImportError: LocalizedError {
+    case unsupportedFileType
+    case unsupportedEncoding
+    case fileTooLarge
+    case unreadableAudio
+    case tooLong
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedFileType:
+            return "仅支持 WAV、CAF 或 AIFF 铃声。"
+        case .unsupportedEncoding:
+            return "铃声必须使用 Linear PCM、IMA4、µLaw 或 aLaw 编码。"
+        case .fileTooLarge:
+            return "铃声文件不能超过 20 MB。"
+        case .unreadableAudio:
+            return "无法读取该音频文件。"
+        case .tooLong:
+            return "自定义铃声不能超过 10 秒。"
         }
     }
 }

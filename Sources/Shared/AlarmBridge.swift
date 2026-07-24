@@ -15,6 +15,7 @@ struct WPhoneAlarmRecord: Codable {
     let callKey: String
     let caller: String
     let scheduledAt: Date
+    let expiresAt: Date?
     let notificationIdentifier: String?
 
     init(
@@ -22,12 +23,14 @@ struct WPhoneAlarmRecord: Codable {
         callKey: String,
         caller: String,
         scheduledAt: Date,
+        expiresAt: Date? = nil,
         notificationIdentifier: String? = nil
     ) {
         self.id = id
         self.callKey = callKey
         self.caller = caller
         self.scheduledAt = scheduledAt
+        self.expiresAt = expiresAt
         self.notificationIdentifier = notificationIdentifier
     }
 }
@@ -82,7 +85,11 @@ enum WPhoneAlarmStore {
     }
 
     static func removeNotification(for record: WPhoneAlarmRecord?) {
-        guard let identifier = record?.notificationIdentifier else { return }
+        removeNotification(identifier: record?.notificationIdentifier)
+    }
+
+    static func removeNotification(identifier: String?) {
+        guard let identifier else { return }
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
         center.removeDeliveredNotifications(withIdentifiers: [identifier])
@@ -116,6 +123,7 @@ enum WPhoneAlarmStore {
 
 enum WPhoneAlarmConfiguration {
     typealias Configuration = AlarmManager.AlarmConfiguration<WPhoneAlarmMetadata>
+    static let maximumAlertDurationSeconds: TimeInterval = 50
 
     static func make(
         id: UUID,
@@ -145,10 +153,13 @@ enum WPhoneAlarmConfiguration {
             metadata: WPhoneAlarmMetadata(caller: caller, callKey: callKey),
             tintColor: Color.green
         )
-        let sound: AlertConfiguration.AlertSound =
-            NotificationRouting.hasIncomingCallSound()
-                ? .named(NotificationRouting.incomingCallSoundName)
-                : .default
+        _ = try? NotificationRouting.prepareIncomingCallSoundForCurrentContainer()
+        let sound: AlertConfiguration.AlertSound
+        if let soundName = NotificationRouting.incomingCallAlarmSoundName() {
+            sound = .named(soundName)
+        } else {
+            sound = .default
+        }
         return Configuration(
             schedule: .fixed(triggerDate),
             attributes: attributes,
