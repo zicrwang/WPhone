@@ -502,7 +502,7 @@ enum WPhoneEventContract {
         "/api/debug/call": {
           "post": {
             "operationId": "scheduleDebugAlarmKitAlert",
-            "description": "Schedules an iOS 26 AlarmKit alert. The Close button stops it; the Open button launches WPhone and then opens WeChat.",
+            "description": "Schedules an iOS 26 AlarmKit alert and a time-sensitive local notification banner. Both use the bundled incoming-call sound and provide actions that stop the alert or open WeChat through WPhone.",
             "parameters": [{
               "name": "caller",
               "in": "query",

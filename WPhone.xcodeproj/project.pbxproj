@@ -19,6 +19,8 @@
 		A10000000000000000000010 /* AlarmBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* AlarmBridge.swift */; };
 		A10000000000000000000011 /* AlarmBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* AlarmBridge.swift */; };
 		A10000000000000000000012 /* WPhoneRelayChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* WPhoneRelayChannel.swift */; };
+		A10000000000000000000013 /* WPhoneIncomingCall.wav in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* WPhoneIncomingCall.wav */; };
+		A10000000000000000000014 /* WPhoneIncomingCall.wav in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* WPhoneIncomingCall.wav */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -60,6 +62,7 @@
 		A20000000000000000000012 /* NotificationRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRouting.swift; sourceTree = "<group>"; };
 		A20000000000000000000013 /* AlarmBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmBridge.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* WPhoneRelayChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WPhoneRelayChannel.swift; sourceTree = "<group>"; };
+		A20000000000000000000015 /* WPhoneIncomingCall.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = WPhoneIncomingCall.wav; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -84,6 +87,7 @@
 			isa = PBXGroup;
 			children = (
 				A30000000000000000000002 /* Sources */,
+				A30000000000000000000009 /* Resources */,
 				A30000000000000000000006 /* InfoPlist */,
 				A30000000000000000000007 /* Entitlements */,
 				A30000000000000000000008 /* Products */,
@@ -156,6 +160,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		A30000000000000000000009 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000015 /* WPhoneIncomingCall.wav */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -165,6 +177,7 @@
 			buildPhases = (
 				A40000000000000000000001 /* Sources */,
 				A40000000000000000000002 /* Frameworks */,
+				A40000000000000000000006 /* Resources */,
 				A40000000000000000000003 /* Embed App Extensions */,
 			);
 			buildRules = (
@@ -183,6 +196,7 @@
 			buildPhases = (
 				A40000000000000000000004 /* Sources */,
 				A40000000000000000000005 /* Frameworks */,
+				A40000000000000000000007 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -229,6 +243,25 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A40000000000000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000013 /* WPhoneIncomingCall.wav in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A40000000000000000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000014 /* WPhoneIncomingCall.wav in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A40000000000000000000001 /* Sources */ = {

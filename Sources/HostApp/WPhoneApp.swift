@@ -1,3 +1,4 @@
+import AlarmKit
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -52,15 +53,30 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
                 completionHandler()
                 return
             }
+            stopIncomingCallAlarm(for: request.content)
+            center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
             openWeChat(destination: destination, completion: completionHandler)
         case NotificationRouting.dismissActionIdentifier,
              UNNotificationDismissActionIdentifier:
+            stopIncomingCallAlarm(for: request.content)
             center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
             SharedLogger.shared.info("Notification dismissed by user")
             completionHandler()
         default:
             completionHandler()
         }
+    }
+
+    private func stopIncomingCallAlarm(for content: UNNotificationContent) {
+        guard let callKey = NotificationRouting.incomingCallKey(from: content),
+              let record = WPhoneAlarmStore.activeAlarm(),
+              record.callKey == callKey else {
+            return
+        }
+        try? AlarmManager.shared.stop(id: record.id)
+        try? AlarmManager.shared.cancel(id: record.id)
+        WPhoneAlarmStore.clear(alarmID: record.id)
+        SharedLogger.shared.info("AlarmKit alarm stopped from incoming-call notification")
     }
 
     private func openWeChat(
@@ -84,6 +100,7 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
 }
 
 private struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var tunnel = TunnelController()
     @State private var logText = ""
     @State private var showingLog = false
@@ -94,6 +111,8 @@ private struct ContentView: View {
                 Section("AlarmKit") {
                     LabeledContent("权限", value: tunnel.alarmAuthorizationStatus)
                     LabeledContent("测试", value: tunnel.alarmTestStatus)
+                    LabeledContent("时效通知", value: tunnel.notificationTimeSensitiveStatus)
+                    LabeledContent("横幅风格", value: tunnel.notificationBannerStyle)
 
                     HStack(spacing: 12) {
                         Button {
@@ -109,6 +128,12 @@ private struct ContentView: View {
                             Label("停止", systemImage: "stop.fill")
                         }
                         .buttonStyle(.bordered)
+                    }
+
+                    Button {
+                        openNotificationSettings()
+                    } label: {
+                        Label("通知设置", systemImage: "bell.badge.fill")
                     }
                 }
 
@@ -169,6 +194,10 @@ private struct ContentView: View {
             await tunnel.requestNotificationAuthorization()
             await tunnel.requestAlarmAuthorization()
         }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await tunnel.refreshNotificationSettings() }
+        }
         .sheet(isPresented: $showingLog) {
             NavigationView {
                 ScrollView {
@@ -185,5 +214,12 @@ private struct ContentView: View {
                 }
             }
         }
+    }
+
+    private func openNotificationSettings() {
+        guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else {
+            return
+        }
+        UIApplication.shared.open(url)
     }
 }

@@ -20,6 +20,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         var relayConnectedAt: Date?
         var relayEventCount = 0
         var notificationAuthorization = "unknown"
+        var notificationAlertSetting = "unknown"
+        var notificationSoundSetting = "unknown"
+        var notificationTimeSensitiveSetting = "unknown"
+        var notificationAlertStyle = "unknown"
         var totalRequests = 0
         var lastRequestPath: String?
         var lastAction: String?
@@ -493,13 +497,16 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             scheduleIncomingAlarm(
                 key: "debug-call",
                 caller: caller,
-                action: "DEBUG_ALARMKIT_INCOMING"
+                action: "DEBUG_ALARMKIT_INCOMING",
+                notificationIdentifier: Self.callNotificationIdentifier
             )
             sendAccepted(
                 action: "DEBUG_ALARMKIT_INCOMING",
                 extra: [
                     "mode": "alarmkit",
                     "alarmKit": true,
+                    "timeSensitiveBanner": true,
+                    "sound": NotificationRouting.incomingCallSoundName,
                     "openBehavior": "open-wphone-then-wechat"
                 ],
                 on: connection
@@ -765,7 +772,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             scheduleIncomingAlarm(
                 key: callKey(source: event.source, eventID: event.id),
                 caller: event.payloadString("caller") ?? "未知来电",
-                action: "EVENT_ALARMKIT_INCOMING"
+                action: "EVENT_ALARMKIT_INCOMING",
+                notificationIdentifier: identifier,
+                notificationSound: event.sound
             )
         case "call.ended":
             guard let targetID = event.payloadString("targetId") else { return }
@@ -860,7 +869,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         scheduleIncomingAlarm(
             key: "legacy-ring",
             caller: "局域网提醒",
-            action: "START_RING_ALARMKIT"
+            action: "START_RING_ALARMKIT",
+            notificationIdentifier: Self.ringNotificationIdentifier
         )
     }
 
@@ -871,12 +881,27 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private func scheduleIncomingAlarm(
         key: String,
         caller: String,
-        action: String
+        action: String,
+        notificationIdentifier: String,
+        notificationSound: String = "default"
     ) {
         alarmKit.schedule(
             key: key,
             caller: caller,
-            action: action
+            action: action,
+            notificationIdentifier: notificationIdentifier
+        )
+        submitNotification(
+            identifier: notificationIdentifier,
+            title: "微信来电",
+            body: "\(caller) 正在呼叫，点击“打开”进入微信",
+            action: "\(action)_BANNER",
+            priority: "timeSensitive",
+            sound: notificationSound,
+            threadIdentifier: "app.wephone.vpn.calls",
+            opensWeChat: true,
+            usesIncomingCallSound: true,
+            incomingCallKey: key
         )
     }
 
@@ -887,13 +912,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             log.info("\(action) AlarmKit alarm scheduled key=\(key) id=\(alarmID.uuidString)")
         case .scheduleFailed(let key, let message):
             recordError("AlarmKit schedule failed key=\(key): \(message)")
-            submitNotification(
-                identifier: Self.callNotificationIdentifier,
-                title: "微信来电",
-                body: "AlarmKit 不可用，点击“打开”进入微信",
-                action: "ALARMKIT_FALLBACK_NOTIFICATION",
-                opensWeChat: true
-            )
+            log.info("Time-sensitive call banner was submitted independently key=\(key)")
         case .stopped(let key):
             recordAction("ALARMKIT_STOPPED")
             log.info("AlarmKit alarm stopped key=\(key)")
@@ -908,14 +927,27 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         priority: String = "timeSensitive",
         sound: String = "default",
         threadIdentifier: String = "app.wephone.vpn.debug",
-        opensWeChat: Bool = false
+        opensWeChat: Bool = false,
+        usesIncomingCallSound: Bool = false,
+        incomingCallKey: String? = nil
     ) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = sound == "none" ? nil : .default
+        if sound == "none" {
+            content.sound = nil
+        } else if usesIncomingCallSound {
+            content.sound = NotificationRouting.incomingCallNotificationSound()
+        } else {
+            content.sound = .default
+        }
         content.threadIdentifier = threadIdentifier
-        if opensWeChat {
+        if let incomingCallKey {
+            NotificationRouting.routeIncomingCallToWeChat(
+                content,
+                callKey: incomingCallKey
+            )
+        } else if opensWeChat {
             NotificationRouting.routeToWeChat(content)
         }
         if #available(iOS 15.0, *), priority == "timeSensitive" {
@@ -1022,6 +1054,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "outbound_relay_channel",
                 "message_notification",
                 "alarmkit_alert",
+                "time_sensitive_call_banner",
+                "custom_incoming_call_sound",
                 "alarm_open_action",
                 "wechat_notification_action"
             ]
@@ -1078,6 +1112,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             ],
             "notifications": [
                 "authorization": state.notificationAuthorization,
+                "alertSetting": state.notificationAlertSetting,
+                "soundSetting": state.notificationSoundSetting,
+                "timeSensitiveSetting": state.notificationTimeSensitiveSetting,
+                "alertStyle": state.notificationAlertStyle,
+                "incomingCallSound": NotificationRouting.incomingCallSoundName,
+                "incomingCallSoundAvailable": NotificationRouting.hasIncomingCallSound(),
                 "lastAction": jsonValue(state.lastAction),
                 "lastActionAt": jsonValue(state.lastActionAt.map { dateFormatter.string(from: $0) })
             ],
@@ -1095,6 +1135,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "caller": jsonValue(activeAlarm?.caller),
                 "scheduledAt": jsonValue(activeAlarm.map { dateFormatter.string(from: $0.scheduledAt) }),
                 "triggerDelaySeconds": AlarmKitCoordinator.triggerDelaySeconds,
+                "sound": NotificationRouting.incomingCallSoundName,
+                "soundAvailable": NotificationRouting.hasIncomingCallSound(),
                 "openBehavior": "open-wphone-then-wechat"
             ],
             "events": [
@@ -1147,7 +1189,31 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             case .ephemeral: value = "ephemeral"
             @unknown default: value = "unknown"
             }
-            self?.mutateState { $0.notificationAuthorization = value }
+            self?.mutateState {
+                $0.notificationAuthorization = value
+                $0.notificationAlertSetting = Self.describe(settings.alertSetting)
+                $0.notificationSoundSetting = Self.describe(settings.soundSetting)
+                $0.notificationTimeSensitiveSetting = Self.describe(settings.timeSensitiveSetting)
+                $0.notificationAlertStyle = Self.describe(settings.alertStyle)
+            }
+        }
+    }
+
+    private static func describe(_ setting: UNNotificationSetting) -> String {
+        switch setting {
+        case .notSupported: return "not-supported"
+        case .disabled: return "disabled"
+        case .enabled: return "enabled"
+        @unknown default: return "unknown"
+        }
+    }
+
+    private static func describe(_ style: UNAlertStyle) -> String {
+        switch style {
+        case .none: return "none"
+        case .banner: return "temporary"
+        case .alert: return "persistent"
+        @unknown default: return "unknown"
         }
     }
 
@@ -1492,7 +1558,12 @@ private final class AlarmKitCoordinator {
         }
     }
 
-    func schedule(key: String, caller: String, action: String) {
+    func schedule(
+        key: String,
+        caller: String,
+        action: String,
+        notificationIdentifier: String
+    ) {
         let id = UUID()
         let operation = beginOperation(id: id, key: key)
         cancelPersistedAlarm()
@@ -1516,7 +1587,8 @@ private final class AlarmKitCoordinator {
                     id: id,
                     callKey: key,
                     caller: caller,
-                    scheduledAt: Date()
+                    scheduledAt: Date(),
+                    notificationIdentifier: notificationIdentifier
                 )
                 guard self?.saveIfCurrent(record, operation: operation) == true else {
                     try? manager.stop(id: id)
@@ -1569,6 +1641,7 @@ private final class AlarmKitCoordinator {
     private func stop(_ record: WPhoneAlarmRecord) {
         try? manager.stop(id: record.id)
         try? manager.cancel(id: record.id)
+        WPhoneAlarmStore.removeNotification(for: record)
         WPhoneAlarmStore.clear(alarmID: record.id)
     }
 

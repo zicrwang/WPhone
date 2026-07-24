@@ -6,7 +6,25 @@ enum NotificationRouting {
     static let openWeChatActionIdentifier = "app.wephone.vpn.action.open-wechat"
     static let dismissActionIdentifier = "app.wephone.vpn.action.dismiss"
     static let destinationKey = "app.wephone.vpn.destination"
+    static let incomingCallKey = "app.wephone.vpn.incoming-call-key"
     static let weChatDestination = "weixin://"
+    static let incomingCallSoundName = "WPhoneIncomingCall.wav"
+
+    static func hasIncomingCallSound(in bundle: Bundle = .main) -> Bool {
+        bundle.url(
+            forResource: "WPhoneIncomingCall",
+            withExtension: "wav"
+        ) != nil
+    }
+
+    static func incomingCallNotificationSound(
+        in bundle: Bundle = .main
+    ) -> UNNotificationSound {
+        guard hasIncomingCallSound(in: bundle) else { return .default }
+        return UNNotificationSound(
+            named: UNNotificationSoundName(rawValue: incomingCallSoundName)
+        )
+    }
 
     static func registerCategories(on center: UNUserNotificationCenter = .current()) {
         let openWeChat = UNNotificationAction(
@@ -32,6 +50,18 @@ enum NotificationRouting {
     static func routeToWeChat(_ content: UNMutableNotificationContent) {
         content.categoryIdentifier = categoryIdentifier
         content.userInfo[destinationKey] = weChatDestination
+    }
+
+    static func routeIncomingCallToWeChat(
+        _ content: UNMutableNotificationContent,
+        callKey: String
+    ) {
+        routeToWeChat(content)
+        content.userInfo[incomingCallKey] = callKey
+    }
+
+    static func incomingCallKey(from content: UNNotificationContent) -> String? {
+        content.userInfo[incomingCallKey] as? String
     }
 
     static func destination(from content: UNNotificationContent) -> URL? {

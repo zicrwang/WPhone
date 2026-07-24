@@ -15,6 +15,8 @@ final class TunnelController: NSObject, ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var alarmTestStatus = "Not tested"
     @Published private(set) var alarmAuthorizationStatus = "unknown"
+    @Published private(set) var notificationTimeSensitiveStatus = "unknown"
+    @Published private(set) var notificationBannerStyle = "unknown"
     @Published var relayHost = TunnelController.defaultRelayHost
     @Published var relayPort = String(TunnelController.defaultRelayPort)
 
@@ -48,9 +50,26 @@ final class TunnelController: NSObject, ObservableObject {
                 options: [.alert, .sound, .badge]
             )
             SharedLogger.shared.info("Notification authorization granted: \(granted)")
+            await refreshNotificationSettings()
         } catch {
             lastError = error.localizedDescription
             SharedLogger.shared.error("Notification authorization failed: \(error.localizedDescription)")
+        }
+    }
+
+    func refreshNotificationSettings() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        switch settings.timeSensitiveSetting {
+        case .notSupported: notificationTimeSensitiveStatus = "不支持"
+        case .disabled: notificationTimeSensitiveStatus = "已关闭"
+        case .enabled: notificationTimeSensitiveStatus = "已开启"
+        @unknown default: notificationTimeSensitiveStatus = "未知"
+        }
+        switch settings.alertStyle {
+        case .none: notificationBannerStyle = "无"
+        case .banner: notificationBannerStyle = "临时"
+        case .alert: notificationBannerStyle = "持续"
+        @unknown default: notificationBannerStyle = "未知"
         }
     }
 

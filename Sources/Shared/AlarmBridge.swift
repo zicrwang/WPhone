@@ -2,6 +2,7 @@ import AlarmKit
 import AppIntents
 import Foundation
 import SwiftUI
+import UserNotifications
 
 struct WPhoneAlarmMetadata: AlarmMetadata {
     let caller: String
@@ -13,6 +14,21 @@ struct WPhoneAlarmRecord: Codable {
     let callKey: String
     let caller: String
     let scheduledAt: Date
+    let notificationIdentifier: String?
+
+    init(
+        id: UUID,
+        callKey: String,
+        caller: String,
+        scheduledAt: Date,
+        notificationIdentifier: String? = nil
+    ) {
+        self.id = id
+        self.callKey = callKey
+        self.caller = caller
+        self.scheduledAt = scheduledAt
+        self.notificationIdentifier = notificationIdentifier
+    }
 }
 
 enum WPhoneAlarmStore {
@@ -62,6 +78,13 @@ enum WPhoneAlarmStore {
         guard defaults?.bool(forKey: pendingOpenKey) == true else { return false }
         defaults?.removeObject(forKey: pendingOpenKey)
         return true
+    }
+
+    static func removeNotification(for record: WPhoneAlarmRecord?) {
+        guard let identifier = record?.notificationIdentifier else { return }
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
     }
 
     static func saveHostAuthorization(_ value: String) {
@@ -121,11 +144,16 @@ enum WPhoneAlarmConfiguration {
             metadata: WPhoneAlarmMetadata(caller: caller, callKey: callKey),
             tintColor: Color.green
         )
+        let sound: AlertConfiguration.AlertSound =
+            NotificationRouting.hasIncomingCallSound()
+                ? .named(NotificationRouting.incomingCallSoundName)
+                : .default
         return Configuration(
             schedule: .fixed(triggerDate),
             attributes: attributes,
             stopIntent: WPhoneStopAlarmIntent(alarmID: id.uuidString),
-            secondaryIntent: WPhoneOpenAlarmIntent(alarmID: id.uuidString)
+            secondaryIntent: WPhoneOpenAlarmIntent(alarmID: id.uuidString),
+            sound: sound
         )
     }
 }
@@ -172,8 +200,10 @@ struct WPhoneStopAlarmIntent: LiveActivityIntent {
 
     func perform() throws -> some IntentResult {
         guard let id = UUID(uuidString: alarmID) else { return .result() }
+        let record = WPhoneAlarmStore.activeAlarm().flatMap { $0.id == id ? $0 : nil }
         try? AlarmManager.shared.stop(id: id)
         try? AlarmManager.shared.cancel(id: id)
+        WPhoneAlarmStore.removeNotification(for: record)
         WPhoneAlarmStore.clear(alarmID: id)
         return .result()
     }
@@ -197,9 +227,11 @@ struct WPhoneOpenAlarmIntent: LiveActivityIntent {
 
     func perform() throws -> some IntentResult {
         guard let id = UUID(uuidString: alarmID) else { return .result() }
+        let record = WPhoneAlarmStore.activeAlarm().flatMap { $0.id == id ? $0 : nil }
         WPhoneAlarmStore.markPendingOpen()
         try? AlarmManager.shared.stop(id: id)
         try? AlarmManager.shared.cancel(id: id)
+        WPhoneAlarmStore.removeNotification(for: record)
         WPhoneAlarmStore.clear(alarmID: id)
         return .result()
     }
