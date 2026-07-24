@@ -95,7 +95,7 @@ curl http://<手机的局域网IP>:8080/openapi.json
 
 VPN 只提供 Packet Tunnel Extension 的后台生命周期，不参与路由、代理或通知展示。局域网 HTTP 监听器和来电通知的 30 秒自动清理由 Packet Tunnel 进程执行；停止 VPN 后 iOS 会终止该进程，因此在重新连接 VPN 前无法接收新的局域网事件，已经显示的通知也不再保证按时自动移除。这是后台入口的生命周期限制，不是通知权限依赖 VPN。
 
-VPN Extension 不能调用 `UIApplication`，所以“打开”操作先由本地通知唤醒主 App；微信来源才由主 App 再打开微信。系统会短暂经过 WPhone；公开 API 不支持由后台扩展在完全无用户操作的情况下直接启动微信。
+VPN Extension 不能调用 `UIApplication`，所以“打开”操作先由本地通知唤醒主 App；微信来源会先显示不含设置选项的全屏微信过渡页约 0.9 秒，再由主 App 打开微信。手动打开 WPhone 时也先显示全屏入口页，轻触后才进入设置表单。公开 API 不支持由后台扩展在完全无用户操作的情况下直接启动微信。
 
 ## 兼容指令
 

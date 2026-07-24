@@ -17,7 +17,7 @@ Tasker/局域网软件
   -> Packet Tunnel Extension 接收 call.incoming
        -> 立即提交 timeSensitive 本地通知
        关闭 / call.ended -> 移除通知
-       wechat 来源打开 -> 唤醒 WPhone -> 打开 weixin://
+       wechat 来源打开 -> WPhone 全屏微信过渡页 -> 打开 weixin://
        其他来源打开 -> 唤醒 WPhone
        30 秒内无关闭信号 -> 自动清理通知
 ```
@@ -28,7 +28,7 @@ Tasker/局域网软件
 
 Packet Tunnel 内置微信、短信、电话和邮箱 PNG。通知事件按 `source` 的首分段选用图片：`wechat`、`sms`、`phone`、`email`，每个分段后可继续使用 `.`, `_` 或 `-` 区分设备实例。图片作为 iOS 通信通知的来源头像提交，最终位置由 iOS 决定，不会替换 WPhone 的 App 图标。
 
-只有 `source` 为 `wechat` 的事件具有固定允许的 `weixin://` 打开目标。`sms`、`phone`、`email` 和任何未映射来源点按后只进入 WPhone，当前不会启动短信、电话或邮件 App。发送端不能通过 `payload`、`extensions` 或调试参数指定任意图片或 Deep Link。
+只有 `source` 为 `wechat` 的事件具有固定允许的 `weixin://` 打开目标。点按微信通知时，WPhone 先显示不含设置选项的全屏微信过渡页约 0.9 秒，再调用该固定地址；不会短暂显示 WPhone 的设置表单。`sms`、`phone`、`email` 和任何未映射来源点按后只进入 WPhone，当前不会启动短信、电话或邮件 App。发送端不能通过 `payload`、`extensions` 或调试参数指定任意图片或 Deep Link。
 
 ## 自定义声音
 
@@ -56,9 +56,9 @@ Packet Tunnel 内置微信、短信、电话和邮箱 PNG。通知事件按 `sou
 2. 启动 WPhone，在系统通知页允许横幅、声音和时效通知；需要时将横幅风格设为持续。
 3. 设置中继站 `192.168.2.99:18081` 并连接 VPN。
 4. 在中继站请求 `http://192.168.2.99:18080/health`，确认 `providers` 为 `1`。
-5. 打开 `http://<手机IP>:8080/` 的“弹出调试”页面，分别选择微信、短信、电话、邮箱并提交信息通知，确认显示相应来源图片；微信点按后进入微信，其余点按后只进入 WPhone。
+5. 打开 `http://<手机IP>:8080/` 的“弹出调试”页面，分别选择微信、短信、电话、邮箱并提交信息通知，确认显示相应来源图片；微信点按后先显示全屏过渡页再进入微信，其余点按后只进入 WPhone。
 6. 不操作这条信息通知，确认提交成功 5 秒后自动清理，日志出现 `Regular notification auto-cleared after 5 seconds`。
 7. 发送 `call.incoming`，确认立即出现时效通知及所选声音，没有系统闹铃界面。
 8. 点击“关闭”或发送对应的 `call.ended`，确认来电通知立即移除。
-9. 再次以 `source: "wechat"` 触发后点击“打开”，确认 WPhone 被唤醒并进入微信；再以 `source: "phone"` 触发，确认只进入 WPhone。
+9. 再次以 `source: "wechat"` 触发后点击“打开”，确认指定截图的全屏过渡页显示约 0.9 秒后进入微信，期间不出现 WPhone 设置表单；再以 `source: "phone"` 触发，确认只进入 WPhone。
 10. 再触发一次来电且不操作、不发送 `call.ended`，确认提交 30 秒后通知被自动清理，日志出现 `Time-sensitive incoming-call notification auto-cleared after 30 seconds`。

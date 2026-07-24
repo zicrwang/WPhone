@@ -17,3 +17,7 @@ copied into the Packet Tunnel extension bundle. The extension chooses one only
 from the first segment of a validated event `source`: `wechat`, `sms`, `phone`,
 or `email`. They are notification-source avatars and do not change WPhone's
 application icon. The images are not accepted from event payloads or URLs.
+
+`WeChatTransitionWallpaper.heic` is copied only into the main app bundle. It
+is the full-screen image shown when WPhone opens and immediately before a user
+is redirected to the fixed `weixin://` destination from a WeChat notification.

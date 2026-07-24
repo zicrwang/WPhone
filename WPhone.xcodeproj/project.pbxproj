@@ -23,6 +23,7 @@
 		A10000000000000000000016 /* SMS.png in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* SMS.png */; };
 		A10000000000000000000017 /* Phone.png in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* Phone.png */; };
 		A10000000000000000000018 /* Email.png in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* Email.png */; };
+		A10000000000000000000020 /* WeChatTransitionWallpaper.heic in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* WeChatTransitionWallpaper.heic */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,6 +69,7 @@
 		A20000000000000000000017 /* SMS.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = NotificationIcons/SMS.png; sourceTree = "<group>"; };
 		A20000000000000000000018 /* Phone.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = NotificationIcons/Phone.png; sourceTree = "<group>"; };
 		A20000000000000000000019 /* Email.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = NotificationIcons/Email.png; sourceTree = "<group>"; };
+		A20000000000000000000020 /* WeChatTransitionWallpaper.heic */ = {isa = PBXFileReference; lastKnownFileType = image.heic; path = WeChatTransitionWallpaper.heic; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -172,6 +174,7 @@
 				A20000000000000000000017 /* SMS.png */,
 				A20000000000000000000018 /* Phone.png */,
 				A20000000000000000000019 /* Email.png */,
+				A20000000000000000000020 /* WeChatTransitionWallpaper.heic */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -258,6 +261,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000013 /* WPhoneIncomingCall.wav in Resources */,
+				A10000000000000000000020 /* WeChatTransitionWallpaper.heic in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

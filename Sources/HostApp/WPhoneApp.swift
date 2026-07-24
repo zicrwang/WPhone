@@ -9,7 +9,7 @@ struct WPhoneApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            WPhoneRootView()
         }
     }
 }
@@ -48,7 +48,7 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
                 return
             }
             center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
-            openWeChat(destination: destination, completion: completionHandler)
+            showWeChatTransition(destination: destination, completion: completionHandler)
         case UNNotificationDefaultActionIdentifier:
             center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
             guard let destination = NotificationRouting.destination(from: request.content) else {
@@ -56,7 +56,7 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
                 completionHandler()
                 return
             }
-            openWeChat(destination: destination, completion: completionHandler)
+            showWeChatTransition(destination: destination, completion: completionHandler)
         case NotificationRouting.dismissActionIdentifier,
              UNNotificationDismissActionIdentifier:
             center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
@@ -67,23 +67,139 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
         }
     }
 
-    private func openWeChat(
-        destination: URL? = URL(string: NotificationRouting.weChatDestination),
-        completion: (() -> Void)?
+    private func showWeChatTransition(
+        destination: URL,
+        completion: @escaping () -> Void
     ) {
-        guard let destination else {
-            SharedLogger.shared.error("Invalid WeChat destination")
-            completion?()
-            return
+        Task { @MainActor in
+            WPhonePresentationCoordinator.shared.presentWeChatTransition(
+                destination: destination,
+                completion: completion
+            )
         }
-        UIApplication.shared.open(destination, options: [:]) { opened in
-            if opened {
-                SharedLogger.shared.info("WeChat opened from user action")
-            } else {
-                SharedLogger.shared.error("Unable to open WeChat using weixin://")
+    }
+}
+
+@MainActor
+private final class WPhonePresentationCoordinator: ObservableObject {
+    static let shared = WPhonePresentationCoordinator()
+
+    enum Screen: Equatable {
+        case entry
+        case settings
+        case weChatTransition(UUID)
+    }
+
+    @Published private(set) var screen: Screen = .entry
+
+    private var transitionTask: Task<Void, Never>?
+    private var pendingCompletion: (() -> Void)?
+
+    private init() {}
+
+    func enterSettings() {
+        transitionTask?.cancel()
+        transitionTask = nil
+        screen = .settings
+    }
+
+    func presentWeChatTransition(destination: URL, completion: @escaping () -> Void) {
+        transitionTask?.cancel()
+        pendingCompletion?()
+        pendingCompletion = completion
+
+        let identifier = UUID()
+        screen = .weChatTransition(identifier)
+        transitionTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            guard !Task.isCancelled,
+                  let self,
+                  self.screen == .weChatTransition(identifier) else {
+                return
             }
-            completion?()
+
+            UIApplication.shared.open(destination, options: [:]) { [weak self] opened in
+                Task { @MainActor in
+                    if opened {
+                        SharedLogger.shared.info("WeChat opened after transition screen")
+                    } else {
+                        SharedLogger.shared.error("Unable to open WeChat using weixin://")
+                    }
+                    self?.finishWeChatTransition(identifier: identifier)
+                }
+            }
         }
+    }
+
+    private func finishWeChatTransition(identifier: UUID) {
+        guard screen == .weChatTransition(identifier) else { return }
+        transitionTask = nil
+        screen = .entry
+        let completion = pendingCompletion
+        pendingCompletion = nil
+        completion?()
+    }
+}
+
+private struct WPhoneRootView: View {
+    @ObservedObject private var presentation = WPhonePresentationCoordinator.shared
+
+    var body: some View {
+        switch presentation.screen {
+        case .entry:
+            WPhoneEntryView(onEnter: presentation.enterSettings)
+        case .settings:
+            ContentView()
+        case .weChatTransition:
+            WeChatTransitionView()
+        }
+    }
+}
+
+private struct WPhoneEntryView: View {
+    let onEnter: () -> Void
+
+    var body: some View {
+        WPhoneWallpaper()
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onEnter)
+        .ignoresSafeArea()
+    }
+}
+
+private struct WeChatTransitionView: View {
+    var body: some View {
+        WPhoneWallpaper()
+        .accessibilityLabel("正在打开微信")
+        .ignoresSafeArea()
+    }
+}
+
+private struct WPhoneWallpaper: View {
+    private static let transitionArtwork: UIImage? = {
+        guard let url = Bundle.main.url(
+            forResource: "WeChatTransitionWallpaper",
+            withExtension: "heic"
+        ) else {
+            return nil
+        }
+        return UIImage(contentsOfFile: url.path)
+    }()
+
+    var body: some View {
+        GeometryReader { proxy in
+            if let artwork = Self.transitionArtwork {
+                Image(uiImage: artwork)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .clipped()
+                    .accessibilityHidden(true)
+            } else {
+                Color(red: 0.035, green: 0.075, blue: 0.07)
+            }
+        }
+        .ignoresSafeArea()
     }
 }
 

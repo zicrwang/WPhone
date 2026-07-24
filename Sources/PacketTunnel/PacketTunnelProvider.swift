@@ -519,7 +519,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     "bannerInterruptionLevel": "timeSensitive",
                     "notificationSound": NotificationRouting.incomingCallSoundName,
                     "autoClearSeconds": Int(Self.incomingCallAutoClearSeconds),
-                    "openBehavior": "open-wphone-then-wechat"
+                    "openBehavior": "show-wphone-transition-then-wechat"
                 ],
                 on: connection
             )
