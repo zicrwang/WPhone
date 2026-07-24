@@ -100,10 +100,10 @@ homeassistant.home
 
 | 字段 | 可选值 | 建议 |
 | --- | --- | --- |
-| `priority` | `normal`、`timeSensitive` | 默认使用 `normal`；来电兜底横幅固定为普通 `active` 级别 |
+| `priority` | `normal`、`timeSensitive` | 普通事件默认使用 `normal`；来电固定使用 `timeSensitive` |
 | `sound` | `default`、`none` | 普通事件中 `default` 使用系统声；来电横幅中 `default` 使用 App 当前选择的最长 29 秒铃声；`none` 关闭本地通知声音 |
 
-`timeSensitive` 不是 Critical Alert。它仍受通知授权、专注模式和 iOS 系统策略控制。该值只影响 `message.received` 和 `notification.show`；`call.incoming` 为避免系统“时效通知”标签而固定使用普通 `active` 横幅，并由 AlarmKit 承担系统级来电提醒。
+`timeSensitive` 不是 Critical Alert。它仍受通知授权、专注模式和 iOS 系统策略控制。`call.incoming` 固定提交时效通知，来电请求中的 `delivery.priority` 仅为兼容字段；它不会创建系统闹铃或 Live Activity。
 
 ### 3.4 extensions
 
@@ -133,7 +133,7 @@ homeassistant.home
 | 移除一条通用提醒 | `notification.dismiss` | `targetId` | 引用对应 `notification.show` 的 `id` |
 | 暂无内置语义的厂商事件 | `custom.<vendor>.<name>` | 无 | 当前只写日志，不能期待弹出通知 |
 
-`conversationId`、`mediaKind` 和 `callKind` 当前只是保留的结构化元数据。AlarmKit 不区分音频和视频来电，也不会建立媒体通道。每个 `call.incoming` 会同时调度 AlarmKit 和普通 `active` 本地通知；这是亮屏时 AlarmKit 没有正确展开时的顶部横幅兜底，不需要 APNs，也不会显示系统“时效通知”标签。发送端没有发出 `call.ended` 时，WPhone 会在提醒触发 50 秒后自动停止并清理横幅。
+`conversationId`、`mediaKind` 和 `callKind` 当前只是保留的结构化元数据。来电不会建立媒体通道。每个 `call.incoming` 都会提交一条时效本地通知，不需要 APNs；发送端没有发出 `call.ended` 时，WPhone 会在提交后 30 秒自动清理该通知。
 
 ### 4.1 消息事件
 
@@ -175,7 +175,7 @@ homeassistant.home
     "callKind": "voice"
   },
   "delivery": {
-    "priority": "normal",
+    "priority": "timeSensitive",
     "sound": "default"
   }
 }
@@ -196,7 +196,7 @@ homeassistant.home
 }
 ```
 
-普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`；WPhone 会在触发 50 秒后自动结束未关闭的提醒。WPhone 会为 `call.incoming` 调度 iOS 26 AlarmKit 系统提醒：“拒绝”停止提醒，“接听”启动 WPhone 后进入微信。它不是实际 VoIP 通话，也不传输音频；新的来电提醒会替换上一条活动提醒。
+普通局域网软件通常只能识别“疑似来电通知”，不一定能可靠获得通话生命周期。无法确认结束事件时，不要伪造 `call.ended`；WPhone 会在提交后 30 秒自动移除未关闭的通知。`call.incoming` 只会提交时效通知：“关闭”移除通知，“打开”启动 WPhone 后进入微信。它不是实际 VoIP 通话，也不传输音频。
 
 ### 4.3 通用通知与移除
 
@@ -406,13 +406,13 @@ GET http://192.168.2.99:18080/health
 1. 主 App 中 VPN 是否已连接。
 2. 中继站 `GET /health` 是否返回 `ok: true` 且 `providers` 为 `1`。
 3. WPhone 日志是否出现 `VPN relay registered`；直连调试页时确认 `relay.state` 为 `connected`。
-4. 普通消息检查 `notifications.authorization` 是否为 `authorized` 或 `provisional`；来电先检查 `alarmKit.hostAuthorization` 是否为 `authorized`。`alarmKit.extensionAuthorization` 可能与主 App 不同，不能单独用它判断最终调度结果。
+4. 检查 `notifications.authorization` 是否为 `authorized` 或 `provisional`，并确认 `notifications.timeSensitiveSetting` 为 `enabled`。
 5. `events.acceptedCount`、`lastEventId` 和 `lastEventEffect` 是否更新。
-6. 来电后检查 `alarmKit.active`、`activeAlarmId` 和 `activeCallKey`。
-7. 使用 `/api/logs?cursor=0` 查看 `AlarmKit alarm scheduled`，或包含 NSError domain/code 的 AlarmKit 提交错误。
-8. 检查 iOS 闹钟权限、通知设置和声音设置。
+6. 来电后检查 `notifications.incomingCallInterruptionLevel` 是否为 `timeSensitive`，并确认 `incomingCallAutoClearSeconds` 为 `30`。
+7. 使用 `/api/logs?cursor=0` 查看 `EVENT_TIME_SENSITIVE_INCOMING notification submitted` 或通知提交错误。
+8. 检查 iOS 通知、时效通知和声音设置。
 
-HTTP `202` 只表示 WPhone 接受并提交了本地处理请求。iOS 最终是否展示 AlarmKit/通知、播放声音或采用请求的中断级别仍由系统决定。
+HTTP `202` 只表示 WPhone 接受并提交了本地处理请求。iOS 最终是否展示通知、播放声音或采用请求的中断级别仍由系统决定。
 
 ## 10. 安全边界
 
@@ -436,7 +436,7 @@ HTTP `202` 只表示 WPhone 接受并提交了本地处理请求。iOS 最终是
 - `call.ended` 和 `notification.dismiss` 使用正确的 `targetId` 与相同 `source`。
 - 未知响应字段会被忽略，错误逻辑只依赖状态码和 `error.code`。
 - iPhone 更换 IP、VPN 停止、通知权限关闭和 WPhone 重启时有明确诊断信息；IP 变化后中继通道能自动恢复。
-- 来电提醒设备运行 iOS 26.0 或更高版本，并已在主 App 中允许 AlarmKit 权限。
+- 来电提醒已在主 App 中允许通知和时效通知。
 - 不依赖真实媒体通话、无人值守打开其他 App、Critical Alert 或永久后台运行等 v1 未承诺能力。
 
 完成以上项目后，其他软件即可在不依赖 WPhone 内部实现的情况下稳定接入 `/api/v1/events`。

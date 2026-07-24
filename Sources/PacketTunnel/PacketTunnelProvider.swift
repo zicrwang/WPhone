@@ -1,4 +1,3 @@
-import AlarmKit
 import Foundation
 import Network
 import NetworkExtension
@@ -11,6 +10,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private static let maximumRequestBytes = 16 * 1024
     private static let maximumConnections = 8
     private static let requestTimeoutSeconds: TimeInterval = 10
+    private static let incomingCallAutoClearSeconds: TimeInterval = 30
     private static let bonjourServiceType = "_wphone-debug._tcp"
 
     private struct RuntimeState {
@@ -77,9 +77,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var listenerStartCompletion: ((Error?) -> Void)?
     private var listenerReachedReady = false
     private var runtimeState = RuntimeState()
-    private lazy var alarmKit = AlarmKitCoordinator { [weak self] event in
-        self?.handleAlarmKitEvent(event)
-    }
+    private let incomingCallExpiryLock = NSLock()
+    private var incomingCallExpiryTasks: [String: (token: UUID, task: Task<Void, Never>)] = [:]
     private lazy var relayChannel = WPhoneRelayChannel(
         queue: listenerQueue,
         eventHandler: { [weak self] data in
@@ -160,7 +159,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         log.info("Stopping packet tunnel, reason=\(reason.rawValue)")
-        log.info("Leaving scheduled AlarmKit alerts active while stopping packet tunnel")
+        cancelAllIncomingCallAutoClear()
         relayChannel.stop()
         listener?.cancel()
         listener = nil
@@ -494,21 +493,19 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             sendAccepted(action: "DEBUG_MESSAGE", on: connection)
         case ("POST", "/api/debug/call"):
             let caller = request.queryValue(named: "caller", maximumCharacters: 80) ?? "WPhone 调试来电"
-            scheduleIncomingAlarm(
-                key: "debug-call",
+            submitIncomingCallNotification(
                 caller: caller,
-                action: "DEBUG_ALARMKIT_INCOMING",
+                action: "DEBUG_TIME_SENSITIVE_INCOMING",
                 notificationIdentifier: Self.callNotificationIdentifier
             )
             sendAccepted(
-                action: "DEBUG_ALARMKIT_INCOMING",
+                action: "DEBUG_TIME_SENSITIVE_INCOMING",
                 extra: [
-                    "mode": "alarmkit",
-                    "alarmKit": true,
-                    "timeSensitiveBanner": false,
-                    "bannerInterruptionLevel": "active",
-                    "sound": NotificationRouting.incomingCallAlarmSoundName,
-                    "notificationSound": NotificationRouting.incomingCallNotificationSoundName,
+                    "mode": "time-sensitive-notification",
+                    "timeSensitiveBanner": true,
+                    "bannerInterruptionLevel": "timeSensitive",
+                    "notificationSound": NotificationRouting.incomingCallSoundName,
+                    "autoClearSeconds": Int(Self.incomingCallAutoClearSeconds),
                     "openBehavior": "open-wphone-then-wechat"
                 ],
                 on: connection
@@ -771,10 +768,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 opensWeChat: true
             )
         case "call.incoming":
-            scheduleIncomingAlarm(
-                key: callKey(source: event.source, eventID: event.id),
+            submitIncomingCallNotification(
                 caller: event.payloadString("caller") ?? "未知来电",
-                action: "EVENT_ALARMKIT_INCOMING",
+                action: "EVENT_TIME_SENSITIVE_INCOMING",
                 notificationIdentifier: identifier,
                 notificationSound: event.sound
             )
@@ -787,9 +783,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             let center = UNUserNotificationCenter.current()
             center.removePendingNotificationRequests(withIdentifiers: [targetIdentifier])
             center.removeDeliveredNotifications(withIdentifiers: [targetIdentifier])
-            _ = alarmKit.stop(key: callKey(source: event.source, eventID: targetID))
-            recordAction("EVENT_ALARMKIT_ENDED")
-            log.info("Event AlarmKit alarm ended source=\(event.source) targetId=\(targetID)")
+            cancelIncomingCallAutoClear(for: targetIdentifier)
+            recordAction("EVENT_INCOMING_CALL_ENDED")
+            log.info("Incoming-call notification ended source=\(event.source) targetId=\(targetID)")
         case "notification.dismiss":
             guard let targetID = event.payloadString("targetId") else { return }
             let targetIdentifier = WPhoneEventContract.notificationIdentifier(
@@ -868,60 +864,90 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func triggerRing() {
-        scheduleIncomingAlarm(
-            key: "legacy-ring",
+        submitIncomingCallNotification(
             caller: "局域网提醒",
-            action: "START_RING_ALARMKIT",
+            action: "START_RING_TIME_SENSITIVE",
             notificationIdentifier: Self.ringNotificationIdentifier
         )
     }
 
-    private func callKey(source: String, eventID: String) -> String {
-        "\(source):\(eventID)"
-    }
-
-    private func scheduleIncomingAlarm(
-        key: String,
+    private func submitIncomingCallNotification(
         caller: String,
         action: String,
         notificationIdentifier: String,
         notificationSound: String = "default"
     ) {
-        alarmKit.schedule(
-            key: key,
-            caller: caller,
-            action: action,
-            notificationIdentifier: notificationIdentifier
-        )
         submitNotification(
             identifier: notificationIdentifier,
             title: "微信来电",
             body: "\(caller) 正在呼叫，点击“打开”进入微信",
-            action: "\(action)_BANNER",
-            priority: "normal",
+            action: action,
+            priority: "timeSensitive",
             sound: notificationSound,
             threadIdentifier: "app.wephone.vpn.calls",
             opensWeChat: true,
-            usesIncomingCallSound: true,
-            incomingCallKey: key
+            usesIncomingCallSound: true
         )
+        armIncomingCallAutoClear(for: notificationIdentifier)
     }
 
-    private func handleAlarmKitEvent(_ event: AlarmKitCoordinator.Event) {
-        switch event {
-        case .scheduled(let action, let key, let alarmID):
-            recordAction(action)
-            log.info("\(action) AlarmKit alarm scheduled key=\(key) id=\(alarmID.uuidString)")
-        case .scheduleFailed(let key, let message):
-            recordError("AlarmKit schedule failed key=\(key): \(message)")
-            log.info("Active call banner was submitted independently key=\(key)")
-        case .stopped(let key):
-            recordAction("ALARMKIT_STOPPED")
-            log.info("AlarmKit alarm stopped key=\(key)")
-        case .timedOut(let key):
-            recordAction("ALARMKIT_TIMED_OUT")
-            log.info("AlarmKit alarm auto-stopped after 50 seconds key=\(key)")
+    private func armIncomingCallAutoClear(for notificationIdentifier: String) {
+        let token = UUID()
+        let task = Task { [weak self] in
+            try? await Task.sleep(
+                nanoseconds: UInt64(Self.incomingCallAutoClearSeconds * 1_000_000_000)
+            )
+            guard !Task.isCancelled,
+                  let self,
+                  self.takeIncomingCallAutoClear(
+                    for: notificationIdentifier,
+                    matching: token
+                  ) else {
+                return
+            }
+            let center = UNUserNotificationCenter.current()
+            center.removePendingNotificationRequests(withIdentifiers: [notificationIdentifier])
+            center.removeDeliveredNotifications(withIdentifiers: [notificationIdentifier])
+            self.recordAction("INCOMING_CALL_AUTO_CLEARED")
+            self.log.info(
+                "Time-sensitive incoming-call notification auto-cleared after " +
+                    "\(Int(Self.incomingCallAutoClearSeconds)) seconds"
+            )
         }
+
+        incomingCallExpiryLock.lock()
+        let previous = incomingCallExpiryTasks.removeValue(forKey: notificationIdentifier)
+        incomingCallExpiryTasks[notificationIdentifier] = (token, task)
+        incomingCallExpiryLock.unlock()
+        previous?.task.cancel()
+    }
+
+    private func cancelIncomingCallAutoClear(for notificationIdentifier: String) {
+        incomingCallExpiryLock.lock()
+        let task = incomingCallExpiryTasks.removeValue(forKey: notificationIdentifier)?.task
+        incomingCallExpiryLock.unlock()
+        task?.cancel()
+    }
+
+    private func cancelAllIncomingCallAutoClear() {
+        incomingCallExpiryLock.lock()
+        let tasks = incomingCallExpiryTasks.values.map(\.task)
+        incomingCallExpiryTasks.removeAll(keepingCapacity: false)
+        incomingCallExpiryLock.unlock()
+        tasks.forEach { $0.cancel() }
+    }
+
+    private func takeIncomingCallAutoClear(
+        for notificationIdentifier: String,
+        matching token: UUID
+    ) -> Bool {
+        incomingCallExpiryLock.lock()
+        defer { incomingCallExpiryLock.unlock() }
+        guard incomingCallExpiryTasks[notificationIdentifier]?.token == token else {
+            return false
+        }
+        incomingCallExpiryTasks.removeValue(forKey: notificationIdentifier)
+        return true
     }
 
     private func submitNotification(
@@ -933,8 +959,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         sound: String = "default",
         threadIdentifier: String = "app.wephone.vpn.debug",
         opensWeChat: Bool = false,
-        usesIncomingCallSound: Bool = false,
-        incomingCallKey: String? = nil
+        usesIncomingCallSound: Bool = false
     ) {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -942,17 +967,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         if sound == "none" {
             content.sound = nil
         } else if usesIncomingCallSound {
-            content.sound = NotificationRouting.incomingCallNotificationSound()
+            content.sound = NotificationRouting.incomingCallSound()
         } else {
             content.sound = .default
         }
         content.threadIdentifier = threadIdentifier
-        if let incomingCallKey {
-            NotificationRouting.routeIncomingCallToWeChat(
-                content,
-                callKey: incomingCallKey
-            )
-        } else if opensWeChat {
+        if opensWeChat {
             NotificationRouting.routeToWeChat(content)
         }
         if #available(iOS 15.0, *) {
@@ -983,9 +1003,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
-        alarmKit.stopAll()
+        identifiers.forEach { cancelIncomingCallAutoClear(for: $0) }
         recordAction("STOP_DEBUG")
-        log.info("Debug alarms and notifications removed")
+        log.info("Debug notifications removed")
     }
 
     private func sendLogSnapshot(for request: HTTPRequest, on connection: NWConnection) {
@@ -1058,10 +1078,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "incremental_logs",
                 "outbound_relay_channel",
                 "message_notification",
-                "alarmkit_alert",
-                "time_sensitive_call_banner",
+                "time_sensitive_call_notification",
                 "custom_incoming_call_sound",
-                "alarm_open_action",
                 "wechat_notification_action"
             ]
         ]
@@ -1080,7 +1098,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             uptimeSeconds = 0
         }
 
-        let activeAlarm = WPhoneAlarmStore.activeAlarm()
         return [
             "ok": true,
             "service": "wphone",
@@ -1121,47 +1138,16 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "soundSetting": state.notificationSoundSetting,
                 "timeSensitiveSetting": state.notificationTimeSensitiveSetting,
                 "alertStyle": state.notificationAlertStyle,
-                "incomingCallInterruptionLevel": "active",
-                "incomingCallSound": NotificationRouting.incomingCallNotificationSoundName,
-                "incomingCallSoundAvailable": NotificationRouting.hasIncomingCallSound(.notification),
-                "incomingCallSoundCustom": NotificationRouting.isUsingCustomIncomingCallSound(
-                    .notification
-                ),
-                "incomingCallSoundDurationSeconds": NotificationRouting.incomingCallSoundDurationSeconds(
-                    for: .notification
-                ),
+                "incomingCallInterruptionLevel": "timeSensitive",
+                "incomingCallSound": NotificationRouting.incomingCallSoundName,
+                "incomingCallSoundAvailable": NotificationRouting.hasIncomingCallSound(),
+                "incomingCallSoundCustom": NotificationRouting.isUsingCustomIncomingCallSound,
+                "incomingCallSoundDurationSeconds": NotificationRouting.incomingCallSoundDurationSeconds,
                 "incomingCallSoundMaximumDurationSeconds": NotificationRouting
-                    .maximumNotificationSoundDurationSeconds,
+                    .maximumIncomingCallSoundDurationSeconds,
+                "incomingCallAutoClearSeconds": Int(Self.incomingCallAutoClearSeconds),
                 "lastAction": jsonValue(state.lastAction),
                 "lastActionAt": jsonValue(state.lastActionAt.map { dateFormatter.string(from: $0) })
-            ],
-            "alarmKit": [
-                "supported": true,
-                "authorization": alarmKit.extensionAuthorizationState,
-                "hostAuthorization": WPhoneAlarmStore.hostAuthorization() ?? "unknown",
-                "hostAuthorizationUpdatedAt": jsonValue(
-                    WPhoneAlarmStore.hostAuthorizationUpdatedAt().map { dateFormatter.string(from: $0) }
-                ),
-                "extensionAuthorization": alarmKit.extensionAuthorizationState,
-                "active": activeAlarm != nil,
-                "activeAlarmId": jsonValue(activeAlarm?.id.uuidString),
-                "activeCallKey": jsonValue(activeAlarm?.callKey),
-                "caller": jsonValue(activeAlarm?.caller),
-                "scheduledAt": jsonValue(activeAlarm.map { dateFormatter.string(from: $0.scheduledAt) }),
-                "triggerDelaySeconds": AlarmKitCoordinator.triggerDelaySeconds,
-                "maximumAlertDurationSeconds": WPhoneAlarmConfiguration.maximumAlertDurationSeconds,
-                "sound": NotificationRouting.incomingCallAlarmSoundName,
-                "soundAvailable": NotificationRouting.hasIncomingCallSound(.alarm),
-                "soundCustom": NotificationRouting.isUsingCustomIncomingCallSound(.alarm),
-                "soundDurationSeconds": NotificationRouting.incomingCallSoundDurationSeconds(
-                    for: .alarm
-                ),
-                "maximumSoundDurationSeconds": NotificationRouting
-                    .maximumAlarmSoundDurationSeconds,
-                "expiresAt": jsonValue(
-                    activeAlarm.flatMap { $0.expiresAt }.map { dateFormatter.string(from: $0) }
-                ),
-                "openBehavior": "open-wphone-then-wechat"
             ],
             "events": [
                 "endpoint": WPhoneEventContract.endpoint,
@@ -1432,7 +1418,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
           <div class="stat"><span>隧道用途</span><strong id="purpose">-</strong></div>
           <div class="stat"><span>运行时间</span><strong id="uptime">-</strong></div>
           <div class="stat"><span>通知权限</span><strong id="notification">-</strong></div>
-          <div class="stat"><span>AlarmKit</span><strong id="alarmKit">-</strong></div>
+          <div class="stat"><span>来电提醒</span><strong id="incomingCallMode">-</strong></div>
           <div class="stat"><span>中继站</span><strong id="relay">-</strong></div>
           <div class="stat"><span>请求总数</span><strong id="requests">-</strong></div>
           <div class="stat"><span>本次事件</span><strong id="eventsAccepted">-</strong></div>
@@ -1448,7 +1434,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             </form>
             <form id="callForm">
               <label>来电名称<input id="caller" value="微信来电" maxlength="80"></label>
-              <button type="submit">AlarmKit 来电</button>
+              <button type="submit">时效来电通知</button>
               <button id="stopButton" class="secondary" type="button">停止并清除</button>
             </form>
           </div>
@@ -1488,7 +1474,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             byId('purpose').textContent = data.tunnel.purpose;
             byId('uptime').textContent = duration(data.tunnel.uptimeSeconds);
             byId('notification').textContent = data.notifications.authorization;
-            byId('alarmKit').textContent = `App ${data.alarmKit.hostAuthorization} / 扩展 ${data.alarmKit.extensionAuthorization} · ${data.alarmKit.active ? '响铃中' : '空闲'}`;
+            byId('incomingCallMode').textContent = `${data.notifications.incomingCallInterruptionLevel} · ${data.notifications.incomingCallAutoClearSeconds}s 清理`;
             byId('relay').textContent = `${data.relay.state} · ${data.relay.host}:${data.relay.port}`;
             byId('requests').textContent = String(data.listener.totalRequests);
             byId('eventsAccepted').textContent = String(data.events.acceptedCount);
@@ -1539,7 +1525,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         byId('callForm').addEventListener('submit', event => {
           event.preventDefault();
           const query = new URLSearchParams({ caller: byId('caller').value });
-          runAction(`/api/debug/call?${query}`, 'AlarmKit 来电已提交');
+          runAction(`/api/debug/call?${query}`, '时效来电通知已提交');
         });
         byId('stopButton').addEventListener('click', () => runAction('/api/debug/stop', '调试通知已清除'));
         byId('clearView').addEventListener('click', () => { byId('logs').textContent = ''; });
@@ -1552,245 +1538,4 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     </body>
     </html>
     """#
-}
-
-private final class AlarmKitCoordinator {
-    static let triggerDelaySeconds = 1
-
-    enum Event {
-        case scheduled(action: String, key: String, alarmID: UUID)
-        case scheduleFailed(key: String, message: String)
-        case stopped(key: String)
-        case timedOut(key: String)
-    }
-
-    private let manager = AlarmManager.shared
-    private let eventHandler: (Event) -> Void
-    private let generationLock = NSLock()
-    private var generation = 0
-    private var pendingAlarm: (id: UUID, key: String)?
-
-    init(eventHandler: @escaping (Event) -> Void) {
-        self.eventHandler = eventHandler
-    }
-
-    var extensionAuthorizationState: String {
-        switch manager.authorizationState {
-        case .notDetermined: return "not-determined"
-        case .denied: return "denied"
-        case .authorized: return "authorized"
-        @unknown default: return "unknown"
-        }
-    }
-
-    func schedule(
-        key: String,
-        caller: String,
-        action: String,
-        notificationIdentifier: String
-    ) {
-        let id = UUID()
-        let operation = beginOperation(id: id, key: key)
-        cancelPersistedAlarm()
-        let triggerDate = Date.now.addingTimeInterval(
-            TimeInterval(Self.triggerDelaySeconds)
-        )
-        let expiresAt = triggerDate.addingTimeInterval(
-            WPhoneAlarmConfiguration.maximumAlertDurationSeconds
-        )
-        armAutomaticStop(
-            id: id,
-            key: key,
-            notificationIdentifier: notificationIdentifier,
-            expiresAt: expiresAt,
-            operation: operation
-        )
-        let configuration = WPhoneAlarmConfiguration.make(
-            id: id,
-            caller: caller,
-            callKey: key,
-            triggerDate: triggerDate
-        )
-        let hostAuthorization = WPhoneAlarmStore.hostAuthorization() ?? "unknown"
-        let extensionAuthorization = extensionAuthorizationState
-        SharedLogger.shared.debug(
-            "PacketTunnel AlarmKit schedule attempt key=\(key) id=\(id.uuidString) " +
-            "hostAuthorization=\(hostAuthorization) extensionAuthorization=\(extensionAuthorization)"
-        )
-
-        Task { [weak self, manager, eventHandler] in
-            do {
-                _ = try await manager.schedule(id: id, configuration: configuration)
-                let record = WPhoneAlarmRecord(
-                    id: id,
-                    callKey: key,
-                    caller: caller,
-                    scheduledAt: Date(),
-                    expiresAt: expiresAt,
-                    notificationIdentifier: notificationIdentifier
-                )
-                guard self?.saveIfCurrent(record, operation: operation) == true else {
-                    try? manager.stop(id: id)
-                    try? manager.cancel(id: id)
-                    return
-                }
-                eventHandler(.scheduled(action: action, key: key, alarmID: id))
-            } catch {
-                if self?.clearPendingIfCurrent(id: id, operation: operation) == true {
-                    let currentExtensionState = self?.extensionAuthorizationState ?? "unavailable"
-                    let details = WPhoneAlarmDiagnostics.describe(error)
-                    eventHandler(.scheduleFailed(
-                        key: key,
-                        message: "\(details); hostAuthorization=\(hostAuthorization); " +
-                            "extensionAuthorizationBefore=\(extensionAuthorization); " +
-                            "extensionAuthorizationAfter=\(currentExtensionState)"
-                    ))
-                }
-            }
-        }
-    }
-
-    @discardableResult
-    func stop(key: String) -> Bool {
-        let pending = cancelPending(key: key)
-        let record = WPhoneAlarmStore.activeAlarm()
-        guard pending != nil || record?.callKey == key else {
-            return false
-        }
-        if let record, record.callKey == key {
-            invalidateCurrentOperation()
-            stop(record)
-        }
-        if let pending {
-            try? manager.stop(id: pending.id)
-            try? manager.cancel(id: pending.id)
-        }
-        eventHandler(.stopped(key: key))
-        return true
-    }
-
-    func stopAll() {
-        let pending = cancelPending()
-        if WPhoneAlarmStore.activeAlarm() != nil {
-            invalidateCurrentOperation()
-        }
-        cancelPersistedAlarm()
-        if let pending {
-            try? manager.stop(id: pending.id)
-            try? manager.cancel(id: pending.id)
-        }
-    }
-
-    private func stop(_ record: WPhoneAlarmRecord) {
-        try? manager.stop(id: record.id)
-        try? manager.cancel(id: record.id)
-        WPhoneAlarmStore.removeNotification(for: record)
-        WPhoneAlarmStore.clear(alarmID: record.id)
-    }
-
-    private func cancelPersistedAlarm() {
-        guard let record = WPhoneAlarmStore.activeAlarm() else { return }
-        stop(record)
-    }
-
-    private func armAutomaticStop(
-        id: UUID,
-        key: String,
-        notificationIdentifier: String,
-        expiresAt: Date,
-        operation: Int
-    ) {
-        let delay = max(0, expiresAt.timeIntervalSinceNow)
-        Task { [weak self] in
-            try? await Task.sleep(
-                nanoseconds: UInt64(delay * 1_000_000_000)
-            )
-            guard !Task.isCancelled,
-                  let self else {
-                return
-            }
-            let didStopAlarm = expireIfCurrent(
-                id: id,
-                notificationIdentifier: notificationIdentifier,
-                operation: operation
-            )
-            if didStopAlarm {
-                eventHandler(.timedOut(key: key))
-            }
-        }
-    }
-
-    private func expireIfCurrent(
-        id: UUID,
-        notificationIdentifier: String,
-        operation: Int
-    ) -> Bool {
-        generationLock.lock()
-        defer { generationLock.unlock() }
-        guard generation == operation else { return false }
-
-        generation += 1
-        let wasPending = pendingAlarm?.id == id
-        if wasPending {
-            pendingAlarm = nil
-        }
-        let record = WPhoneAlarmStore.activeAlarm().flatMap { $0.id == id ? $0 : nil }
-        if record != nil || wasPending {
-            try? manager.stop(id: id)
-            try? manager.cancel(id: id)
-        }
-        WPhoneAlarmStore.removeNotification(identifier: notificationIdentifier)
-        WPhoneAlarmStore.clear(alarmID: id)
-        return record != nil || wasPending
-    }
-
-    private func invalidateCurrentOperation() {
-        generationLock.lock()
-        generation += 1
-        generationLock.unlock()
-    }
-
-    private func beginOperation(id: UUID, key: String) -> Int {
-        generationLock.lock()
-        generation += 1
-        let value = generation
-        pendingAlarm = (id: id, key: key)
-        generationLock.unlock()
-        return value
-    }
-
-    private func saveIfCurrent(_ record: WPhoneAlarmRecord, operation: Int) -> Bool {
-        generationLock.lock()
-        defer { generationLock.unlock() }
-        guard generation == operation, pendingAlarm?.id == record.id else {
-            return false
-        }
-        WPhoneAlarmStore.save(record)
-        pendingAlarm = nil
-        return true
-    }
-
-    private func clearPendingIfCurrent(id: UUID, operation: Int) -> Bool {
-        generationLock.lock()
-        defer { generationLock.unlock() }
-        guard generation == operation, pendingAlarm?.id == id else {
-            return false
-        }
-        pendingAlarm = nil
-        return true
-    }
-
-    private func cancelPending(
-        key: String? = nil
-    ) -> (id: UUID, key: String)? {
-        generationLock.lock()
-        defer { generationLock.unlock() }
-        guard let pendingAlarm,
-              key == nil || pendingAlarm.key == key else {
-            return nil
-        }
-        generation += 1
-        self.pendingAlarm = nil
-        return pendingAlarm
-    }
 }

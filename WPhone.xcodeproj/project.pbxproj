@@ -16,8 +16,6 @@
 		A10000000000000000000007 /* WPhoneEventAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* WPhoneEventAPI.swift */; };
 		A10000000000000000000008 /* NotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* NotificationRouting.swift */; };
 		A10000000000000000000009 /* NotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* NotificationRouting.swift */; };
-		A10000000000000000000010 /* AlarmBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* AlarmBridge.swift */; };
-		A10000000000000000000011 /* AlarmBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* AlarmBridge.swift */; };
 		A10000000000000000000012 /* WPhoneRelayChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* WPhoneRelayChannel.swift */; };
 		A10000000000000000000013 /* WPhoneIncomingCall.wav in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* WPhoneIncomingCall.wav */; };
 		A10000000000000000000014 /* WPhoneIncomingCall.wav in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* WPhoneIncomingCall.wav */; };
@@ -60,7 +58,6 @@
 		A20000000000000000000010 /* WPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000011 /* WPhoneEventAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WPhoneEventAPI.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* NotificationRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRouting.swift; sourceTree = "<group>"; };
-		A20000000000000000000013 /* AlarmBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmBridge.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* WPhoneRelayChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WPhoneRelayChannel.swift; sourceTree = "<group>"; };
 		A20000000000000000000015 /* WPhoneIncomingCall.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = WPhoneIncomingCall.wav; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -128,7 +125,6 @@
 			children = (
 				A20000000000000000000004 /* SharedLogger.swift */,
 				A20000000000000000000012 /* NotificationRouting.swift */,
-				A20000000000000000000013 /* AlarmBridge.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -272,7 +268,6 @@
 				A10000000000000000000002 /* TunnelController.swift in Sources */,
 				A10000000000000000000003 /* SharedLogger.swift in Sources */,
 				A10000000000000000000008 /* NotificationRouting.swift in Sources */,
-				A10000000000000000000010 /* AlarmBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -284,7 +279,6 @@
 				A10000000000000000000005 /* SharedLogger.swift in Sources */,
 				A10000000000000000000007 /* WPhoneEventAPI.swift in Sources */,
 				A10000000000000000000009 /* NotificationRouting.swift in Sources */,
-				A10000000000000000000011 /* AlarmBridge.swift in Sources */,
 				A10000000000000000000012 /* WPhoneRelayChannel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -1,4 +1,3 @@
-import AlarmKit
 import AVFoundation
 import Combine
 import Foundation
@@ -14,20 +13,15 @@ final class TunnelController: NSObject, ObservableObject {
 
     @Published private(set) var status: NEVPNStatus = .invalid
     @Published private(set) var lastError: String?
-    @Published private(set) var alarmTestStatus = "Not tested"
-    @Published private(set) var alarmAuthorizationStatus = "unknown"
     @Published private(set) var notificationTimeSensitiveStatus = "unknown"
     @Published private(set) var notificationBannerStyle = "unknown"
-    @Published private(set) var alarmSoundStatus = "内置铃声 · 10秒"
-    @Published private(set) var notificationSoundStatus = "内置铃声 · 10秒"
+    @Published private(set) var incomingCallSoundStatus = "内置铃声 · 10秒"
     @Published private(set) var incomingCallSoundError: String?
-    @Published private(set) var incomingCallSoundErrorKind: NotificationRouting.IncomingCallSoundKind?
     @Published var relayHost = TunnelController.defaultRelayHost
     @Published var relayPort = String(TunnelController.defaultRelayPort)
 
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
-    private var alarmTestTimeoutTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -44,7 +38,6 @@ final class TunnelController: NSObject, ObservableObject {
     }
 
     deinit {
-        alarmTestTimeoutTask?.cancel()
         if let statusObserver {
             NotificationCenter.default.removeObserver(statusObserver)
         }
@@ -52,9 +45,8 @@ final class TunnelController: NSObject, ObservableObject {
 
     func requestNotificationAuthorization() async {
         do {
-            // Critical alerts require a separate Apple entitlement and approval.
             let granted = try await UNUserNotificationCenter.current().requestAuthorization(
-                options: [.alert, .sound, .badge]
+                options: [.alert, .sound, .badge, .timeSensitive]
             )
             SharedLogger.shared.info("Notification authorization granted: \(granted)")
             await refreshNotificationSettings()
@@ -81,30 +73,19 @@ final class TunnelController: NSObject, ObservableObject {
     }
 
     func refreshIncomingCallSoundStatus() {
-        alarmSoundStatus = incomingCallSoundStatus(for: .alarm)
-        notificationSoundStatus = incomingCallSoundStatus(for: .notification)
-    }
-
-    private func incomingCallSoundStatus(
-        for kind: NotificationRouting.IncomingCallSoundKind
-    ) -> String {
-        let duration = NotificationRouting.incomingCallSoundDurationSeconds(for: kind)
+        let duration = NotificationRouting.incomingCallSoundDurationSeconds
         let formattedDuration = duration.rounded() == duration
             ? String(Int(duration))
             : String(format: "%.1f", duration)
-        if let originalName = NotificationRouting.incomingCallSoundOriginalName(for: kind) {
-            return "\(originalName) · \(formattedDuration)秒"
+        if let originalName = NotificationRouting.incomingCallSoundOriginalName {
+            incomingCallSoundStatus = "\(originalName) · \(formattedDuration)秒"
         } else {
-            return "内置铃声 · \(formattedDuration)秒"
+            incomingCallSoundStatus = "内置铃声 · \(formattedDuration)秒"
         }
     }
 
-    func installIncomingCallSound(
-        from url: URL,
-        for kind: NotificationRouting.IncomingCallSoundKind
-    ) async {
+    func installIncomingCallSound(from url: URL) async {
         incomingCallSoundError = nil
-        incomingCallSoundErrorKind = kind
         let accessed = url.startAccessingSecurityScopedResource()
         defer {
             if accessed {
@@ -141,9 +122,7 @@ final class TunnelController: NSObject, ObservableObject {
             guard durationSeconds.isFinite, durationSeconds > 0 else {
                 throw IncomingCallSoundImportError.unreadableAudio
             }
-            let maximumDuration = NotificationRouting.maximumIncomingCallSoundDurationSeconds(
-                for: kind
-            )
+            let maximumDuration = NotificationRouting.maximumIncomingCallSoundDurationSeconds
             guard durationSeconds <= maximumDuration else {
                 throw IncomingCallSoundImportError.tooLong(
                     maximumSeconds: Int(maximumDuration)
@@ -153,13 +132,11 @@ final class TunnelController: NSObject, ObservableObject {
             _ = try NotificationRouting.installCustomIncomingCallSound(
                 from: url,
                 originalName: url.lastPathComponent,
-                duration: durationSeconds,
-                for: kind
+                duration: durationSeconds
             )
             refreshIncomingCallSoundStatus()
-            incomingCallSoundErrorKind = nil
             SharedLogger.shared.info(
-                "Custom \(kind.rawValue) sound installed name=\(url.lastPathComponent) " +
+                "Custom incoming-call sound installed name=\(url.lastPathComponent) " +
                     "duration=\(String(format: "%.3f", durationSeconds))"
             )
         } catch {
@@ -170,159 +147,22 @@ final class TunnelController: NSObject, ObservableObject {
         }
     }
 
-    func restoreBundledIncomingCallSound(
-        for kind: NotificationRouting.IncomingCallSoundKind
-    ) {
+    func restoreBundledIncomingCallSound() {
         do {
-            try NotificationRouting.restoreBundledIncomingCallSound(for: kind)
+            try NotificationRouting.restoreBundledIncomingCallSound()
             incomingCallSoundError = nil
-            incomingCallSoundErrorKind = nil
             refreshIncomingCallSoundStatus()
-            SharedLogger.shared.info("Bundled \(kind.rawValue) sound restored")
+            SharedLogger.shared.info("Bundled incoming-call sound restored")
         } catch {
             incomingCallSoundError = error.localizedDescription
-            incomingCallSoundErrorKind = kind
             SharedLogger.shared.error(
                 "Unable to restore bundled incoming-call sound: \(error.localizedDescription)"
             )
         }
     }
 
-    func recordIncomingCallSoundImportError(
-        _ error: Error,
-        for kind: NotificationRouting.IncomingCallSoundKind
-    ) {
+    func recordIncomingCallSoundImportError(_ error: Error) {
         incomingCallSoundError = error.localizedDescription
-        incomingCallSoundErrorKind = kind
-    }
-
-    func requestAlarmAuthorization() async {
-        do {
-            let stateDescription: String
-            let isAuthorized: Bool
-            switch AlarmManager.shared.authorizationState {
-            case .notDetermined:
-                let requestedState = try await AlarmManager.shared.requestAuthorization()
-                stateDescription = String(describing: requestedState)
-                isAuthorized = requestedState == .authorized
-            case .denied:
-                stateDescription = "denied"
-                isAuthorized = false
-            case .authorized:
-                stateDescription = "authorized"
-                isAuthorized = true
-            @unknown default:
-                stateDescription = "unknown"
-                isAuthorized = false
-            }
-            alarmAuthorizationStatus = stateDescription
-            WPhoneAlarmStore.saveHostAuthorization(stateDescription)
-            SharedLogger.shared.info("AlarmKit authorization: \(stateDescription)")
-            if !isAuthorized {
-                lastError = "AlarmKit permission is required for system alarm alerts."
-            }
-        } catch {
-            alarmAuthorizationStatus = "error"
-            WPhoneAlarmStore.saveHostAuthorization("error")
-            lastError = error.localizedDescription
-            SharedLogger.shared.error(
-                "AlarmKit authorization failed: \(WPhoneAlarmDiagnostics.describe(error))"
-            )
-        }
-    }
-
-    func scheduleAlarmKitTest() async {
-        let manager = AlarmManager.shared
-        guard manager.authorizationState == .authorized else {
-            alarmTestStatus = "Not authorized"
-            SharedLogger.shared.error("Main app AlarmKit test skipped: authorization is not authorized")
-            await requestAlarmAuthorization()
-            return
-        }
-
-        stopAlarmKitTest(logResult: false)
-        let id = UUID()
-        let caller = "WPhone 主 App 测试"
-        let callKey = "main-app-test"
-        let triggerDate = Date.now.addingTimeInterval(1)
-        let expiresAt = triggerDate.addingTimeInterval(
-            WPhoneAlarmConfiguration.maximumAlertDurationSeconds
-        )
-        let configuration = WPhoneAlarmConfiguration.make(
-            id: id,
-            caller: caller,
-            callKey: callKey,
-            triggerDate: triggerDate
-        )
-        alarmTestStatus = "Scheduling"
-        SharedLogger.shared.debug(
-            "Main app AlarmKit schedule attempt id=\(id.uuidString) authorization=authorized"
-        )
-
-        do {
-            _ = try await manager.schedule(id: id, configuration: configuration)
-            WPhoneAlarmStore.save(WPhoneAlarmRecord(
-                id: id,
-                callKey: callKey,
-                caller: caller,
-                scheduledAt: Date(),
-                expiresAt: expiresAt
-            ))
-            armAlarmKitTestTimeout(alarmID: id, expiresAt: expiresAt)
-            alarmTestStatus = "Scheduled"
-            lastError = nil
-            SharedLogger.shared.info("Main app AlarmKit alarm scheduled id=\(id.uuidString)")
-        } catch {
-            let details = WPhoneAlarmDiagnostics.describe(error)
-            alarmTestStatus = "Failed"
-            lastError = error.localizedDescription
-            SharedLogger.shared.error("Main app AlarmKit schedule failed: \(details)")
-        }
-    }
-
-    func stopAlarmKitTest(logResult: Bool = true) {
-        alarmTestTimeoutTask?.cancel()
-        alarmTestTimeoutTask = nil
-        guard let record = WPhoneAlarmStore.activeAlarm() else {
-            if logResult {
-                alarmTestStatus = "No active alarm"
-            }
-            return
-        }
-        // AlarmKit uses stop for an alerting alarm and cancel for a scheduled one.
-        // Calling both makes this control work on either side of the trigger date.
-        try? AlarmManager.shared.stop(id: record.id)
-        try? AlarmManager.shared.cancel(id: record.id)
-        WPhoneAlarmStore.clear(alarmID: record.id)
-        alarmTestStatus = "Stopped"
-        if logResult {
-            SharedLogger.shared.info("Main app AlarmKit alarm stop/cancel requested id=\(record.id.uuidString)")
-        }
-    }
-
-    private func armAlarmKitTestTimeout(alarmID: UUID, expiresAt: Date) {
-        alarmTestTimeoutTask?.cancel()
-        let delay = max(0, expiresAt.timeIntervalSinceNow)
-        alarmTestTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(
-                nanoseconds: UInt64(delay * 1_000_000_000)
-            )
-            guard !Task.isCancelled,
-                  let self,
-                  let record = WPhoneAlarmStore.activeAlarm(),
-                  record.id == alarmID else {
-                return
-            }
-            try? AlarmManager.shared.stop(id: alarmID)
-            try? AlarmManager.shared.cancel(id: alarmID)
-            WPhoneAlarmStore.removeNotification(for: record)
-            WPhoneAlarmStore.clear(alarmID: alarmID)
-            alarmTestStatus = "Timed out (50s)"
-            alarmTestTimeoutTask = nil
-            SharedLogger.shared.info(
-                "Main app AlarmKit alarm auto-stopped after 50 seconds id=\(alarmID.uuidString)"
-            )
-        }
     }
 
     func load() async {

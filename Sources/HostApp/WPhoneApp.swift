@@ -1,4 +1,3 @@
-import AlarmKit
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -27,11 +26,6 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
         return true
     }
 
-    func applicationDidBecomeActive(_ application: UIApplication) {
-        guard WPhoneAlarmStore.consumePendingOpen() else { return }
-        openWeChat(completion: nil)
-    }
-
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
@@ -54,30 +48,16 @@ final class WPhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
                 completionHandler()
                 return
             }
-            stopIncomingCallAlarm(for: request.content)
             center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
             openWeChat(destination: destination, completion: completionHandler)
         case NotificationRouting.dismissActionIdentifier,
              UNNotificationDismissActionIdentifier:
-            stopIncomingCallAlarm(for: request.content)
             center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
             SharedLogger.shared.info("Notification dismissed by user")
             completionHandler()
         default:
             completionHandler()
         }
-    }
-
-    private func stopIncomingCallAlarm(for content: UNNotificationContent) {
-        guard let callKey = NotificationRouting.incomingCallKey(from: content),
-              let record = WPhoneAlarmStore.activeAlarm(),
-              record.callKey == callKey else {
-            return
-        }
-        try? AlarmManager.shared.stop(id: record.id)
-        try? AlarmManager.shared.cancel(id: record.id)
-        WPhoneAlarmStore.clear(alarmID: record.id)
-        SharedLogger.shared.info("AlarmKit alarm stopped from incoming-call notification")
     }
 
     private func openWeChat(
@@ -105,33 +85,16 @@ private struct ContentView: View {
     @StateObject private var tunnel = TunnelController()
     @State private var logText = ""
     @State private var showingLog = false
-    @State private var soundImportKind: NotificationRouting.IncomingCallSoundKind?
+    @State private var showingSoundPicker = false
 
     var body: some View {
         NavigationView {
             Form {
-                Section("AlarmKit") {
-                    LabeledContent("权限", value: tunnel.alarmAuthorizationStatus)
-                    LabeledContent("测试", value: tunnel.alarmTestStatus)
-                    LabeledContent("横幅级别", value: "普通")
+                Section("来电提醒") {
+                    LabeledContent("横幅级别", value: "时效通知")
+                    LabeledContent("时效通知", value: tunnel.notificationTimeSensitiveStatus)
                     LabeledContent("横幅风格", value: tunnel.notificationBannerStyle)
-                    LabeledContent("最长响铃", value: "50秒")
-
-                    HStack(spacing: 12) {
-                        Button {
-                            Task { await tunnel.scheduleAlarmKitTest() }
-                        } label: {
-                            Label("测试闹铃", systemImage: "alarm.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button {
-                            tunnel.stopAlarmKitTest()
-                        } label: {
-                            Label("停止", systemImage: "stop.fill")
-                        }
-                        .buttonStyle(.bordered)
-                    }
+                    LabeledContent("自动清理", value: "30秒")
 
                     Button {
                         openNotificationSettings()
@@ -140,72 +103,35 @@ private struct ContentView: View {
                     }
                 }
 
-                Section("闹钟铃声") {
+                Section("来电横幅铃声") {
                     LabeledContent(
                         "文件上限",
-                        value: "\(Int(NotificationRouting.maximumAlarmSoundDurationSeconds))秒"
+                        value: "\(Int(NotificationRouting.maximumIncomingCallSoundDurationSeconds))秒"
                     )
                     LabeledContent("当前") {
-                        Text(tunnel.alarmSoundStatus)
+                        Text(tunnel.incomingCallSoundStatus)
                             .multilineTextAlignment(.trailing)
                             .lineLimit(2)
                     }
 
                     HStack(spacing: 12) {
                         Button {
-                            soundImportKind = .alarm
+                            showingSoundPicker = true
                         } label: {
                             Label("选择文件", systemImage: "folder")
                         }
                         .buttonStyle(.borderedProminent)
 
                         Button {
-                            tunnel.restoreBundledIncomingCallSound(for: .alarm)
+                            tunnel.restoreBundledIncomingCallSound()
                         } label: {
                             Label("恢复内置", systemImage: "arrow.counterclockwise")
                         }
                         .buttonStyle(.bordered)
-                        .disabled(!NotificationRouting.isUsingCustomIncomingCallSound(.alarm))
+                        .disabled(!NotificationRouting.isUsingCustomIncomingCallSound)
                     }
 
-                    if tunnel.incomingCallSoundErrorKind == .alarm,
-                       let soundError = tunnel.incomingCallSoundError {
-                        Text(soundError)
-                            .foregroundStyle(.red)
-                            .font(.footnote)
-                    }
-                }
-
-                Section("顶部横幅铃声") {
-                    LabeledContent(
-                        "文件上限",
-                        value: "\(Int(NotificationRouting.maximumNotificationSoundDurationSeconds))秒"
-                    )
-                    LabeledContent("当前") {
-                        Text(tunnel.notificationSoundStatus)
-                            .multilineTextAlignment(.trailing)
-                            .lineLimit(2)
-                    }
-
-                    HStack(spacing: 12) {
-                        Button {
-                            soundImportKind = .notification
-                        } label: {
-                            Label("选择文件", systemImage: "folder")
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button {
-                            tunnel.restoreBundledIncomingCallSound(for: .notification)
-                        } label: {
-                            Label("恢复内置", systemImage: "arrow.counterclockwise")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(!NotificationRouting.isUsingCustomIncomingCallSound(.notification))
-                    }
-
-                    if tunnel.incomingCallSoundErrorKind == .notification,
-                       let soundError = tunnel.incomingCallSoundError {
+                    if let soundError = tunnel.incomingCallSoundError {
                         Text(soundError)
                             .foregroundStyle(.red)
                             .font(.footnote)
@@ -267,7 +193,6 @@ private struct ContentView: View {
         .task {
             await tunnel.load()
             await tunnel.requestNotificationAuthorization()
-            await tunnel.requestAlarmAuthorization()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
@@ -289,20 +214,20 @@ private struct ContentView: View {
                 }
             }
         }
-        .fullScreenCover(item: $soundImportKind) { kind in
+        .fullScreenCover(isPresented: $showingSoundPicker) {
             SoundDocumentPicker(
                 onPick: { url in
-                    soundImportKind = nil
+                    showingSoundPicker = false
                     Task {
-                        await tunnel.installIncomingCallSound(from: url, for: kind)
+                        await tunnel.installIncomingCallSound(from: url)
                     }
                 },
                 onCancel: {
-                    soundImportKind = nil
+                    showingSoundPicker = false
                 },
                 onError: { error in
-                    soundImportKind = nil
-                    tunnel.recordIncomingCallSoundImportError(error, for: kind)
+                    showingSoundPicker = false
+                    tunnel.recordIncomingCallSoundImportError(error)
                 }
             )
             .ignoresSafeArea()

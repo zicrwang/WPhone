@@ -165,7 +165,7 @@ enum WPhoneEventContract {
         case "message.received", "notification.show":
             return "notification_submitted"
         case "call.incoming":
-            return "alarmkit_schedule_requested"
+            return "notification_submitted"
         case "call.ended", "notification.dismiss":
             return "notification_removed"
         default:
@@ -235,7 +235,7 @@ enum WPhoneEventContract {
         _ rawValue: Any?,
         eventType: String
     ) throws -> (priority: String, sound: String) {
-        let defaultPriority = "normal"
+        let defaultPriority = eventType == "call.incoming" ? "timeSensitive" : "normal"
         guard let rawValue else { return (defaultPriority, "default") }
         guard let delivery = rawValue as? [String: Any] else {
             throw validationError("delivery must be a JSON object.", field: "delivery")
@@ -413,7 +413,7 @@ enum WPhoneEventContract {
       "openapi": "3.0.3",
       "info": {
         "title": "WPhone LAN API",
-        "version": "1.3.0",
+        "version": "1.4.0",
         "description": "Versioned event delivery and private-LAN debug API for WPhone. This API has no authentication or TLS and must remain on a trusted private network."
       },
       "servers": [{ "url": "/" }],
@@ -501,8 +501,8 @@ enum WPhoneEventContract {
         },
         "/api/debug/call": {
           "post": {
-            "operationId": "scheduleDebugAlarmKitAlert",
-            "description": "Schedules an iOS 26 AlarmKit alert and a normal active local notification banner. Each path uses its independently selected incoming-call sound, provides actions that stop the alert or open WeChat through WPhone, and is automatically cleared after 50 seconds without a close signal.",
+            "operationId": "submitDebugTimeSensitiveIncomingCallNotification",
+            "description": "Submits a time-sensitive incoming-call local notification. It uses the selected incoming-call sound, provides actions to close it or open WeChat through WPhone, and is automatically cleared after 30 seconds without a close signal.",
             "parameters": [{
               "name": "caller",
               "in": "query",
@@ -653,7 +653,6 @@ enum WPhoneEventContract {
                 "type": "string",
                 "enum": [
                   "notification_submitted",
-                  "call_notification_submitted",
                   "notification_removed",
                   "logged_only"
                 ]

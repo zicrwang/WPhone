@@ -77,7 +77,7 @@ class RelayServerTests(unittest.IsolatedAsyncioTestCase):
                 "source": event["source"],
                 "id": event["id"],
                 "eventType": event["type"],
-                "effect": "alarmkit_schedule_requested",
+                "effect": "notification_submitted",
                 "firstAcceptedAt": 1784800000456,
             }
             provider_writer.write(json.dumps(ack).encode("utf-8") + b"\n")
