@@ -141,6 +141,10 @@ private struct ContentView: View {
                 }
 
                 Section("闹钟铃声") {
+                    LabeledContent(
+                        "文件上限",
+                        value: "\(Int(NotificationRouting.maximumAlarmSoundDurationSeconds))秒"
+                    )
                     LabeledContent("当前") {
                         Text(tunnel.alarmSoundStatus)
                             .multilineTextAlignment(.trailing)
@@ -173,6 +177,10 @@ private struct ContentView: View {
                 }
 
                 Section("顶部横幅铃声") {
+                    LabeledContent(
+                        "文件上限",
+                        value: "\(Int(NotificationRouting.maximumNotificationSoundDurationSeconds))秒"
+                    )
                     LabeledContent("当前") {
                         Text(tunnel.notificationSoundStatus)
                             .multilineTextAlignment(.trailing)

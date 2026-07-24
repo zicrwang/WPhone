@@ -91,7 +91,7 @@ curl http://<手机的局域网IP>:8080/openapi.json
 
 ## 来电声音
 
-AlarmKit 闹铃和来电顶部横幅默认都使用 [WPhoneIncomingCall.wav](Resources/WPhoneIncomingCall.wav)，但在主 App 中保存为两项独立偏好，可以选择不同文件并分别恢复内置。仓库内置的是 10 秒、单声道、22.05 kHz Linear PCM WAV，工程已把它复制到主 App 和 Packet Tunnel Extension 两个 bundle。文档选择器只显示 WAV、CAF 或 AIFF，采用“打开副本”模式，选择后直接导入；每个文件限制为不超过 10 秒、20 MB，并校验 Linear PCM、IMA4、µLaw 或 aLaw 编码。文件保存到 App Group 的 `Library/Sounds`，AlarmKit 铃声在调度前再同步到当前进程的数据容器。升级前保存的单一自定义铃声会自动复制为两项初始设置。资源缺失时 WPhone 回退到内置或系统默认声音。`/api/status` 会分别报告闹钟与横幅声音，并报告 50 秒过期时间、`timeSensitiveSetting` 和 `alertStyle`；后者为 `persistent` 才表示用户已选择持续横幅。
+AlarmKit 闹铃和来电顶部横幅默认都使用 [WPhoneIncomingCall.wav](Resources/WPhoneIncomingCall.wav)，但在主 App 中保存为两项独立偏好，可以选择不同文件并分别恢复内置。仓库内置的是 10 秒、单声道、22.05 kHz Linear PCM WAV，工程已把它复制到主 App 和 Packet Tunnel Extension 两个 bundle。文档选择器只显示 WAV、CAF 或 AIFF，采用“打开副本”模式，选择后直接导入；闹钟文件最长 60 秒，顶部横幅文件最长 10 秒，每个文件不超过 20 MB，并校验 Linear PCM、IMA4、µLaw 或 aLaw 编码。文件保存到 App Group 的 `Library/Sounds`，AlarmKit 铃声在调度前再同步到当前进程的数据容器。升级前保存的单一自定义铃声会自动复制为两项初始设置。资源缺失时 WPhone 回退到内置或系统默认声音。`/api/status` 会分别报告闹钟与横幅声音及各自上限，并报告 50 秒过期时间、`timeSensitiveSetting` 和 `alertStyle`；后者为 `persistent` 才表示用户已选择持续横幅。
 
 VPN 只提供 Packet Tunnel Extension 的后台生命周期，不参与路由、代理或通知展示。停止 VPN 不再取消已经调度给系统的 AlarmKit 提醒；主 App 在前台时也仍可直接调度提醒。但局域网 HTTP 监听器运行在 Packet Tunnel 进程中，VPN 停止后 iOS 会终止该进程，因此在重新连接 VPN 前无法接收新的局域网事件。这是后台入口的生命周期限制，不是通知权限依赖 VPN。
 

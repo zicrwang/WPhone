@@ -141,8 +141,13 @@ final class TunnelController: NSObject, ObservableObject {
             guard durationSeconds.isFinite, durationSeconds > 0 else {
                 throw IncomingCallSoundImportError.unreadableAudio
             }
-            guard durationSeconds <= NotificationRouting.maximumIncomingCallSoundDurationSeconds + 0.02 else {
-                throw IncomingCallSoundImportError.tooLong
+            let maximumDuration = NotificationRouting.maximumIncomingCallSoundDurationSeconds(
+                for: kind
+            )
+            guard durationSeconds <= maximumDuration + 0.02 else {
+                throw IncomingCallSoundImportError.tooLong(
+                    maximumSeconds: Int(maximumDuration)
+                )
             }
 
             _ = try NotificationRouting.installCustomIncomingCallSound(
@@ -480,7 +485,7 @@ private enum IncomingCallSoundImportError: LocalizedError {
     case unsupportedEncoding
     case fileTooLarge
     case unreadableAudio
-    case tooLong
+    case tooLong(maximumSeconds: Int)
 
     var errorDescription: String? {
         switch self {
@@ -492,8 +497,8 @@ private enum IncomingCallSoundImportError: LocalizedError {
             return "铃声文件不能超过 20 MB。"
         case .unreadableAudio:
             return "无法读取该音频文件。"
-        case .tooLong:
-            return "自定义铃声不能超过 10 秒。"
+        case .tooLong(let maximumSeconds):
+            return "自定义铃声不能超过 \(maximumSeconds) 秒。"
         }
     }
 }

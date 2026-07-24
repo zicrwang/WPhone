@@ -1128,6 +1128,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "incomingCallSoundDurationSeconds": NotificationRouting.incomingCallSoundDurationSeconds(
                     for: .notification
                 ),
+                "incomingCallSoundMaximumDurationSeconds": NotificationRouting
+                    .maximumNotificationSoundDurationSeconds,
                 "lastAction": jsonValue(state.lastAction),
                 "lastActionAt": jsonValue(state.lastActionAt.map { dateFormatter.string(from: $0) })
             ],
@@ -1152,6 +1154,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "soundDurationSeconds": NotificationRouting.incomingCallSoundDurationSeconds(
                     for: .alarm
                 ),
+                "maximumSoundDurationSeconds": NotificationRouting
+                    .maximumAlarmSoundDurationSeconds,
                 "expiresAt": jsonValue(
                     activeAlarm.flatMap { $0.expiresAt }.map { dateFormatter.string(from: $0) }
                 ),

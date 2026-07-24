@@ -16,7 +16,9 @@ enum NotificationRouting {
     static let incomingCallKey = "app.wephone.vpn.incoming-call-key"
     static let weChatDestination = "weixin://"
     static let bundledIncomingCallSoundName = "WPhoneIncomingCall.wav"
-    static let maximumIncomingCallSoundDurationSeconds = 10.0
+    static let bundledIncomingCallSoundDurationSeconds = 10.0
+    static let maximumAlarmSoundDurationSeconds = 60.0
+    static let maximumNotificationSoundDurationSeconds = 10.0
 
     private static let appGroupIdentifier = "group.3970029fa0cfcf6d.1"
     private static let alarmCustomSoundNameKey = "app.wephone.vpn.sound.alarm.custom-name"
@@ -76,10 +78,19 @@ enum NotificationRouting {
         for kind: IncomingCallSoundKind
     ) -> Double {
         guard isUsingCustomIncomingCallSound(kind) else {
-            return maximumIncomingCallSoundDurationSeconds
+            return bundledIncomingCallSoundDurationSeconds
         }
         let duration = sharedDefaults?.double(forKey: durationKey(for: kind)) ?? 0
-        return duration > 0 ? duration : maximumIncomingCallSoundDurationSeconds
+        return duration > 0 ? duration : bundledIncomingCallSoundDurationSeconds
+    }
+
+    static func maximumIncomingCallSoundDurationSeconds(
+        for kind: IncomingCallSoundKind
+    ) -> Double {
+        switch kind {
+        case .alarm: maximumAlarmSoundDurationSeconds
+        case .notification: maximumNotificationSoundDurationSeconds
+        }
     }
 
     static func hasIncomingCallSound(
