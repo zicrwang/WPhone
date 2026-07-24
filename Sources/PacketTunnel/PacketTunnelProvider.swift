@@ -10,6 +10,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private static let maximumRequestBytes = 16 * 1024
     private static let maximumConnections = 8
     private static let requestTimeoutSeconds: TimeInterval = 10
+    private static let regularNotificationAutoClearSeconds: TimeInterval = 5
     private static let incomingCallAutoClearSeconds: TimeInterval = 30
     private static let bonjourServiceType = "_wphone-debug._tcp"
 
@@ -79,6 +80,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var runtimeState = RuntimeState()
     private let incomingCallExpiryLock = NSLock()
     private var incomingCallExpiryTasks: [String: (token: UUID, task: Task<Void, Never>)] = [:]
+    private let regularNotificationExpiryLock = NSLock()
+    private var regularNotificationExpiryTasks: [String: (token: UUID, task: Task<Void, Never>)] = [:]
     private lazy var relayChannel = WPhoneRelayChannel(
         queue: listenerQueue,
         eventHandler: { [weak self] data in
@@ -160,6 +163,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     ) {
         log.info("Stopping packet tunnel, reason=\(reason.rawValue)")
         cancelAllIncomingCallAutoClear()
+        cancelAllRegularNotificationAutoClear()
         relayChannel.stop()
         listener?.cancel()
         listener = nil
@@ -490,9 +494,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 body: body,
                 action: "DEBUG_MESSAGE",
                 source: source,
-                senderName: title
+                senderName: title,
+                autoClearAfter: Self.regularNotificationAutoClearSeconds
             )
-            sendAccepted(action: "DEBUG_MESSAGE", on: connection)
+            sendAccepted(
+                action: "DEBUG_MESSAGE",
+                extra: ["autoClearSeconds": Int(Self.regularNotificationAutoClearSeconds)],
+                on: connection
+            )
         case ("POST", "/api/debug/call"):
             let caller = request.queryValue(named: "caller", maximumCharacters: 80) ?? "WPhone 调试来电"
             let source = request.queryValue(named: "source", maximumCharacters: 64) ?? "wechat"
@@ -771,7 +780,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 threadIdentifier: "app.wephone.vpn.events.\(event.source)",
                 source: event.source,
                 senderName: event.payloadString("sender") ?? title,
-                conversationIdentifier: event.payloadString("conversationId")
+                conversationIdentifier: event.payloadString("conversationId"),
+                autoClearAfter: Self.regularNotificationAutoClearSeconds
             )
         case "call.incoming":
             submitIncomingCallNotification(
@@ -802,6 +812,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             let center = UNUserNotificationCenter.current()
             center.removePendingNotificationRequests(withIdentifiers: [targetIdentifier])
             center.removeDeliveredNotifications(withIdentifiers: [targetIdentifier])
+            cancelRegularNotificationAutoClear(for: targetIdentifier)
             recordAction("EVENT_NOTIFICATION_REMOVED")
             log.info("Event notification removed source=\(event.source) targetId=\(targetID)")
         case "notification.show":
@@ -814,7 +825,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 sound: event.sound,
                 threadIdentifier: "app.wephone.vpn.events.\(event.source)",
                 source: event.source,
-                senderName: event.payloadString("title") ?? "WPhone 通知"
+                senderName: event.payloadString("title") ?? "WPhone 通知",
+                autoClearAfter: Self.regularNotificationAutoClearSeconds
             )
         default:
             recordAction("EVENT_LOGGED_ONLY")
@@ -965,6 +977,68 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         return true
     }
 
+    private func armRegularNotificationAutoClear(
+        for notificationIdentifier: String,
+        after seconds: TimeInterval
+    ) {
+        let token = UUID()
+        let task = Task { [weak self] in
+            try? await Task.sleep(
+                nanoseconds: UInt64(seconds * 1_000_000_000)
+            )
+            guard !Task.isCancelled,
+                  let self,
+                  self.takeRegularNotificationAutoClear(
+                    for: notificationIdentifier,
+                    matching: token
+                  ) else {
+                return
+            }
+            let center = UNUserNotificationCenter.current()
+            center.removePendingNotificationRequests(withIdentifiers: [notificationIdentifier])
+            center.removeDeliveredNotifications(withIdentifiers: [notificationIdentifier])
+            self.recordAction("REGULAR_NOTIFICATION_AUTO_CLEARED")
+            self.log.info(
+                "Regular notification auto-cleared after " +
+                    "\(Int(seconds)) seconds"
+            )
+        }
+
+        regularNotificationExpiryLock.lock()
+        let previous = regularNotificationExpiryTasks.removeValue(forKey: notificationIdentifier)
+        regularNotificationExpiryTasks[notificationIdentifier] = (token, task)
+        regularNotificationExpiryLock.unlock()
+        previous?.task.cancel()
+    }
+
+    private func cancelRegularNotificationAutoClear(for notificationIdentifier: String) {
+        regularNotificationExpiryLock.lock()
+        let task = regularNotificationExpiryTasks.removeValue(forKey: notificationIdentifier)?.task
+        regularNotificationExpiryLock.unlock()
+        task?.cancel()
+    }
+
+    private func cancelAllRegularNotificationAutoClear() {
+        regularNotificationExpiryLock.lock()
+        let tasks = regularNotificationExpiryTasks.values.map(\.task)
+        regularNotificationExpiryTasks.removeAll(keepingCapacity: false)
+        regularNotificationExpiryLock.unlock()
+        tasks.forEach { $0.cancel() }
+    }
+
+    private func takeRegularNotificationAutoClear(
+        for notificationIdentifier: String,
+        matching token: UUID
+    ) -> Bool {
+        regularNotificationExpiryLock.lock()
+        defer { regularNotificationExpiryLock.unlock() }
+        guard regularNotificationExpiryTasks[notificationIdentifier]?.token == token else {
+            return false
+        }
+        regularNotificationExpiryTasks.removeValue(forKey: notificationIdentifier)
+        return true
+    }
+
     private func submitNotification(
         identifier: String,
         title: String,
@@ -976,7 +1050,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         source: String? = nil,
         senderName: String? = nil,
         conversationIdentifier: String? = nil,
-        usesIncomingCallSound: Bool = false
+        usesIncomingCallSound: Bool = false,
+        autoClearAfter: TimeInterval? = nil
     ) {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -994,6 +1069,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
 
         let center = UNUserNotificationCenter.current()
+        if autoClearAfter != nil {
+            cancelRegularNotificationAutoClear(for: identifier)
+        }
         center.removeDeliveredNotifications(withIdentifiers: [identifier])
         let notificationContent: UNNotificationContent
         if let source {
@@ -1018,6 +1096,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             } else {
                 self.recordAction(action)
                 self.log.info("\(action) notification submitted")
+                if let autoClearAfter {
+                    self.armRegularNotificationAutoClear(
+                        for: identifier,
+                        after: autoClearAfter
+                    )
+                }
             }
             self.refreshNotificationAuthorization()
         }
@@ -1033,6 +1117,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
         identifiers.forEach { cancelIncomingCallAutoClear(for: $0) }
+        identifiers.forEach { cancelRegularNotificationAutoClear(for: $0) }
         recordAction("STOP_DEBUG")
         log.info("Debug notifications removed")
     }
@@ -1110,6 +1195,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 ],
                 "fallback": ["icon": "app_icon", "tap": "open_wphone"]
             ],
+            "notificationAutoClearSeconds": [
+                "message.received": Int(Self.regularNotificationAutoClearSeconds),
+                "notification.show": Int(Self.regularNotificationAutoClearSeconds),
+                "call.incoming": Int(Self.incomingCallAutoClearSeconds)
+            ],
             "capabilities": [
                 "versioned_events",
                 "persistent_idempotency",
@@ -1117,6 +1207,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "incremental_logs",
                 "outbound_relay_channel",
                 "message_notification",
+                "regular_notification_auto_clear",
                 "time_sensitive_call_notification",
                 "custom_incoming_call_sound",
                 "source_notification_avatars",
@@ -1185,6 +1276,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "incomingCallSoundDurationSeconds": NotificationRouting.incomingCallSoundDurationSeconds,
                 "incomingCallSoundMaximumDurationSeconds": NotificationRouting
                     .maximumIncomingCallSoundDurationSeconds,
+                "regularNotificationAutoClearSeconds": Int(Self.regularNotificationAutoClearSeconds),
                 "incomingCallAutoClearSeconds": Int(Self.incomingCallAutoClearSeconds),
                 "lastAction": jsonValue(state.lastAction),
                 "lastActionAt": jsonValue(state.lastActionAt.map { dateFormatter.string(from: $0) })
@@ -1458,7 +1550,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
           <div class="stat"><span>隧道用途</span><strong id="purpose">-</strong></div>
           <div class="stat"><span>运行时间</span><strong id="uptime">-</strong></div>
           <div class="stat"><span>通知权限</span><strong id="notification">-</strong></div>
-          <div class="stat"><span>来电提醒</span><strong id="incomingCallMode">-</strong></div>
+          <div class="stat"><span>通知清理</span><strong id="notificationExpiry">-</strong></div>
           <div class="stat"><span>中继站</span><strong id="relay">-</strong></div>
           <div class="stat"><span>请求总数</span><strong id="requests">-</strong></div>
           <div class="stat"><span>本次事件</span><strong id="eventsAccepted">-</strong></div>
@@ -1516,7 +1608,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             byId('purpose').textContent = data.tunnel.purpose;
             byId('uptime').textContent = duration(data.tunnel.uptimeSeconds);
             byId('notification').textContent = data.notifications.authorization;
-            byId('incomingCallMode').textContent = `${data.notifications.incomingCallInterruptionLevel} · ${data.notifications.incomingCallAutoClearSeconds}s 清理`;
+            byId('notificationExpiry').textContent = `普通 ${data.notifications.regularNotificationAutoClearSeconds}s · 来电 ${data.notifications.incomingCallAutoClearSeconds}s`;
             byId('relay').textContent = `${data.relay.state} · ${data.relay.host}:${data.relay.port}`;
             byId('requests').textContent = String(data.listener.totalRequests);
             byId('eventsAccepted').textContent = String(data.events.acceptedCount);

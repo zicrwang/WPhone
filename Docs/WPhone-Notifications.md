@@ -22,7 +22,7 @@ Tasker/局域网软件
        30 秒内无关闭信号 -> 自动清理通知
 ```
 
-`call.ended` 必须以与来电相同的 `source` 和对应来电事件的 `id` 作为 `targetId`。`POST /api/debug/stop` 与 `POST /STOP_RING` 会清理调试通知。30 秒清理由 Packet Tunnel 进程执行，停止 VPN 后系统可能终止扩展，因此不保证已经显示的通知仍按时清理。
+`message.received` 与 `notification.show` 是普通通知；每条在成功提交后会独立倒计时 5 秒并自动清理。`call.incoming` 是带铃声的时效横幅；它继续使用独立的 30 秒清理计时。`call.ended` 必须以与来电相同的 `source` 和对应来电事件的 `id` 作为 `targetId`。`notification.dismiss` 可提前移除对应的通用通知。`POST /api/debug/stop` 与 `POST /STOP_RING` 会清理调试通知。两类倒计时都由 Packet Tunnel 进程执行，停止 VPN 后系统可能终止扩展，因此不保证已经显示的通知仍按时清理。
 
 ## 来源图标与打开目标
 
@@ -47,6 +47,7 @@ Packet Tunnel 内置微信、短信、电话和邮箱 PNG。通知事件按 `sou
 | `incomingCallSoundCustom` | 当前是否使用导入声音 |
 | `incomingCallSoundDurationSeconds` | 当前来电声音时长 |
 | `incomingCallSoundMaximumDurationSeconds` | 文件上限，当前为 `29` |
+| `regularNotificationAutoClearSeconds` | `message.received` 和 `notification.show` 的自动清理时间，当前为 `5` |
 | `incomingCallAutoClearSeconds` | 自动清理时间，当前为 `30` |
 
 真机验收：
@@ -56,7 +57,8 @@ Packet Tunnel 内置微信、短信、电话和邮箱 PNG。通知事件按 `sou
 3. 设置中继站 `192.168.2.99:18081` 并连接 VPN。
 4. 在中继站请求 `http://192.168.2.99:18080/health`，确认 `providers` 为 `1`。
 5. 打开 `http://<手机IP>:8080/` 的“弹出调试”页面，分别选择微信、短信、电话、邮箱并提交信息通知，确认显示相应来源图片；微信点按后进入微信，其余点按后只进入 WPhone。
-6. 发送 `call.incoming`，确认立即出现时效通知及所选声音，没有系统闹铃界面。
-7. 点击“关闭”或发送对应的 `call.ended`，确认通知立即移除。
-8. 再次以 `source: "wechat"` 触发后点击“打开”，确认 WPhone 被唤醒并进入微信；再以 `source: "phone"` 触发，确认只进入 WPhone。
-9. 再触发一次且不操作、不发送 `call.ended`，确认提交 30 秒后通知被自动清理，日志出现 `Time-sensitive incoming-call notification auto-cleared after 30 seconds`。
+6. 不操作这条信息通知，确认提交成功 5 秒后自动清理，日志出现 `Regular notification auto-cleared after 5 seconds`。
+7. 发送 `call.incoming`，确认立即出现时效通知及所选声音，没有系统闹铃界面。
+8. 点击“关闭”或发送对应的 `call.ended`，确认来电通知立即移除。
+9. 再次以 `source: "wechat"` 触发后点击“打开”，确认 WPhone 被唤醒并进入微信；再以 `source: "phone"` 触发，确认只进入 WPhone。
+10. 再触发一次来电且不操作、不发送 `call.ended`，确认提交 30 秒后通知被自动清理，日志出现 `Time-sensitive incoming-call notification auto-cleared after 30 seconds`。

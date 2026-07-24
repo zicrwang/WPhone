@@ -483,6 +483,7 @@ enum WPhoneEventContract {
         "/api/debug/message": {
           "post": {
             "operationId": "showDebugMessage",
+            "description": "Submits a regular local notification. It is automatically cleared 5 seconds after successful submission.",
             "parameters": [
               {
                 "name": "source",

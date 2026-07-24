@@ -87,11 +87,11 @@ curl http://<手机的局域网IP>:8080/openapi.json
 
 中继和 iPhone 调试接口都没有账号或令牌认证，只应部署在可信局域网。正式发送端固定调用中继站，不再依赖 iPhone 当前 IP；只有访问 iPhone 调试网页时才需要 IP 或 `_wphone-debug._tcp` Bonjour 发现。
 
-"时效来电通知"会立即提交一条 iOS `.timeSensitive` 本地通知。WPhone 不再创建系统闹铃、锁屏闹铃界面、Dynamic Island 活动或 Live Activity。`source` 的首分段为 `wechat`、`sms`、`phone`、`email` 时会选用内置的对应来源图片；仅 `wechat` 点“打开”后会由 WPhone 打开 `weixin://`，其余来源只进入 WPhone。点“关闭”或收到匹配的 `call.ended` 会移除通知；无操作时，Packet Tunnel 在提交后 30 秒自动清理。时效通知仍受用户通知授权、专注模式、通知摘要与其他系统策略控制。
+`message.received` 与 `notification.show` 是普通通知，成功提交后由 Packet Tunnel 在 5 秒自动清理。"时效来电通知"会立即提交一条 iOS `.timeSensitive` 本地通知。WPhone 不再创建系统闹铃、锁屏闹铃界面、Dynamic Island 活动或 Live Activity。`source` 的首分段为 `wechat`、`sms`、`phone`、`email` 时会选用内置的对应来源图片；仅 `wechat` 点“打开”后会由 WPhone 打开 `weixin://`，其余来源只进入 WPhone。点“关闭”或收到匹配的 `call.ended` 会移除来电通知；无操作时，Packet Tunnel 在提交后 30 秒自动清理。时效通知仍受用户通知授权、专注模式、通知摘要与其他系统策略控制。
 
 ## 来电声音
 
-来电时效通知默认使用 [WPhoneIncomingCall.wav](Resources/WPhoneIncomingCall.wav)。仓库内置的是 10 秒、单声道、22.05 kHz Linear PCM WAV，工程已把它复制到主 App 和 Packet Tunnel Extension 两个 bundle。文档选择器只显示 WAV、CAF 或 AIFF，采用“打开副本”模式，选择后直接导入；文件最长 29 秒、最大 20 MB，并校验 Linear PCM、IMA4、µLaw 或 aLaw 编码。文件保存到 App Group 的 `Library/Sounds`。资源缺失时 WPhone 回退到内置或系统默认声音。`/api/status` 会报告来电声音、时效通知级别、30 秒自动清理时间和 `alertStyle`；后者为 `persistent` 才表示用户已选择持续横幅。
+来电时效通知默认使用 [WPhoneIncomingCall.wav](Resources/WPhoneIncomingCall.wav)。仓库内置的是 10 秒、单声道、22.05 kHz Linear PCM WAV，工程已把它复制到主 App 和 Packet Tunnel Extension 两个 bundle。文档选择器只显示 WAV、CAF 或 AIFF，采用“打开副本”模式，选择后直接导入；文件最长 29 秒、最大 20 MB，并校验 Linear PCM、IMA4、µLaw 或 aLaw 编码。文件保存到 App Group 的 `Library/Sounds`。资源缺失时 WPhone 回退到内置或系统默认声音。`/api/status` 会报告普通通知的 5 秒清理、来电声音、时效通知级别、来电的 30 秒自动清理时间和 `alertStyle`；后者为 `persistent` 才表示用户已选择持续横幅。
 
 VPN 只提供 Packet Tunnel Extension 的后台生命周期，不参与路由、代理或通知展示。局域网 HTTP 监听器和来电通知的 30 秒自动清理由 Packet Tunnel 进程执行；停止 VPN 后 iOS 会终止该进程，因此在重新连接 VPN 前无法接收新的局域网事件，已经显示的通知也不再保证按时自动移除。这是后台入口的生命周期限制，不是通知权限依赖 VPN。
 
