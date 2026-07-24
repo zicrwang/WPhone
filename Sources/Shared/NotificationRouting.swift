@@ -204,11 +204,12 @@ enum NotificationRouting {
             return content
         }
 
+        let avatar = INImage(imageData: imageData)
         let sender = INPerson(
             personHandle: INPersonHandle(value: source, type: .unknown),
             nameComponents: nil,
             displayName: senderName,
-            image: INImage(imageData: imageData),
+            image: avatar,
             contactIdentifier: nil,
             customIdentifier: source,
             isMe: false,
@@ -224,7 +225,13 @@ enum NotificationRouting {
             sender: sender,
             attachments: nil
         )
-        return (try? content.updating(from: intent)) ?? content
+        intent.setImage(avatar, forParameterNamed: \.sender)
+        do {
+            return try content.updating(from: intent)
+        } catch {
+            SharedLogger.shared.error("Unable to decorate notification source=\(source): \(error.localizedDescription)")
+            return content
+        }
     }
 
     static func destination(from content: UNNotificationContent) -> URL? {
