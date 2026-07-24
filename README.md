@@ -87,7 +87,7 @@ curl http://<手机的局域网IP>:8080/openapi.json
 
 中继和 iPhone 调试接口都没有账号或令牌认证，只应部署在可信局域网。正式发送端固定调用中继站，不再依赖 iPhone 当前 IP；只有访问 iPhone 调试网页时才需要 IP 或 `_wphone-debug._tcp` Bonjour 发现。
 
-“AlarmKit 来电”会在收到事件后约 1 秒触发 iOS 26 系统闹铃。锁屏时由系统显示锁屏闹铃界面并响铃；设备正在使用时由系统在屏幕上方呈现并响铃。点“拒绝”会停止并取消提醒；点“接听”会停止提醒、唤醒 WPhone，再由主 App 打开 `weixin://`。具体尺寸、位置和持续时间最终由 iOS 控制。
+“AlarmKit 来电”会在收到事件后约 1 秒触发 iOS 26 系统闹铃。锁定时由系统显示锁屏闹铃界面并响铃；已经解锁且正在使用时由系统在 Dynamic Island 或屏幕顶部呈现并响铃，WPhone 不显示自定义全屏来电页。点“拒绝”会停止并取消提醒；点“接听”会停止提醒、唤醒 WPhone，再由主 App 打开 `weixin://`。项目只配置 AlarmKit Alert，没有 countdown Live Activity；具体尺寸、位置、临时展开程度和持续时间最终由 iOS 控制。
 
 VPN 只提供 Packet Tunnel Extension 的后台生命周期，不参与路由、代理或通知展示。停止 VPN 不再取消已经调度给系统的 AlarmKit 提醒；主 App 在前台时也仍可直接调度提醒。但局域网 HTTP 监听器运行在 Packet Tunnel 进程中，VPN 停止后 iOS 会终止该进程，因此在重新连接 VPN 前无法接收新的局域网事件。这是后台入口的生命周期限制，不是通知权限依赖 VPN。
 
