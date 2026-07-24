@@ -506,7 +506,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     "mode": "alarmkit",
                     "alarmKit": true,
                     "timeSensitiveBanner": true,
-                    "sound": NotificationRouting.incomingCallSoundName,
+                    "sound": NotificationRouting.incomingCallAlarmSoundName,
+                    "notificationSound": NotificationRouting.incomingCallNotificationSoundName,
                     "openBehavior": "open-wphone-then-wechat"
                 ],
                 on: connection
@@ -1119,8 +1120,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "soundSetting": state.notificationSoundSetting,
                 "timeSensitiveSetting": state.notificationTimeSensitiveSetting,
                 "alertStyle": state.notificationAlertStyle,
-                "incomingCallSound": NotificationRouting.incomingCallSoundName,
-                "incomingCallSoundAvailable": NotificationRouting.hasIncomingCallSound(),
+                "incomingCallSound": NotificationRouting.incomingCallNotificationSoundName,
+                "incomingCallSoundAvailable": NotificationRouting.hasIncomingCallSound(.notification),
+                "incomingCallSoundCustom": NotificationRouting.isUsingCustomIncomingCallSound(
+                    .notification
+                ),
+                "incomingCallSoundDurationSeconds": NotificationRouting.incomingCallSoundDurationSeconds(
+                    for: .notification
+                ),
                 "lastAction": jsonValue(state.lastAction),
                 "lastActionAt": jsonValue(state.lastActionAt.map { dateFormatter.string(from: $0) })
             ],
@@ -1139,10 +1146,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 "scheduledAt": jsonValue(activeAlarm.map { dateFormatter.string(from: $0.scheduledAt) }),
                 "triggerDelaySeconds": AlarmKitCoordinator.triggerDelaySeconds,
                 "maximumAlertDurationSeconds": WPhoneAlarmConfiguration.maximumAlertDurationSeconds,
-                "sound": NotificationRouting.incomingCallSoundName,
-                "soundAvailable": NotificationRouting.hasIncomingCallSound(),
-                "soundCustom": NotificationRouting.isUsingCustomIncomingCallSound,
-                "soundDurationSeconds": NotificationRouting.incomingCallSoundDurationSeconds,
+                "sound": NotificationRouting.incomingCallAlarmSoundName,
+                "soundAvailable": NotificationRouting.hasIncomingCallSound(.alarm),
+                "soundCustom": NotificationRouting.isUsingCustomIncomingCallSound(.alarm),
+                "soundDurationSeconds": NotificationRouting.incomingCallSoundDurationSeconds(
+                    for: .alarm
+                ),
                 "expiresAt": jsonValue(
                     activeAlarm.flatMap { $0.expiresAt }.map { dateFormatter.string(from: $0) }
                 ),

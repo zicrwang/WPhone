@@ -26,7 +26,7 @@
 
 ## 使用
 
-主 App 首次启动时会申请通知、AlarmKit、本地网络和 VPN 配置权限。在“中继站”中填写 Armbian 地址和通道端口，然后点击“启动”。主 App 的“测试闹铃”会直接调度一条约 1 秒后的测试提醒，“停止”会停止并取消当前提醒。“通知设置”按钮会进入本应用的系统通知页；需要长驻顶部时，由用户在其中打开横幅并把“横幅风格”选为“持续”。应用代码不能代替用户修改该偏好。“来电铃声”区域可从“文件”选择自定义铃声或恢复内置铃声。调试后台只接受经 Wi-Fi 到达的私网来源：`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、IPv4 链路本地、IPv6 ULA/链路本地和回环地址。
+主 App 首次启动时会申请通知、AlarmKit、本地网络和 VPN 配置权限。在“中继站”中填写 Armbian 地址和通道端口，然后点击“启动”。主 App 的“测试闹铃”会直接调度一条约 1 秒后的测试提醒，“停止”会停止并取消当前提醒。“通知设置”按钮会进入本应用的系统通知页；需要长驻顶部时，由用户在其中打开横幅并把“横幅风格”选为“持续”。应用代码不能代替用户修改该偏好。“闹钟铃声”和“顶部横幅铃声”可分别从“文件”选择自定义声音或恢复内置声音。调试后台只接受经 Wi-Fi 到达的私网来源：`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、IPv4 链路本地、IPv6 ULA/链路本地和回环地址。
 
 中继服务默认监听 HTTP `18080` 和 iPhone 长连接 `18081`：
 
@@ -91,7 +91,7 @@ curl http://<手机的局域网IP>:8080/openapi.json
 
 ## 来电声音
 
-AlarmKit 闹铃和来电顶部横幅默认使用 [WPhoneIncomingCall.wav](Resources/WPhoneIncomingCall.wav)。仓库内置的是 10 秒、单声道、22.05 kHz Linear PCM WAV，工程已把它复制到主 App 和 Packet Tunnel Extension 两个 bundle。主 App 的“选择铃声”支持不超过 10 秒、20 MB 的 WAV、CAF 或 AIFF 文件，并校验 Linear PCM、IMA4、µLaw 或 aLaw 编码；文件保存到 App Group 的 `Library/Sounds`，AlarmKit 调度前再同步到当前进程的数据容器。“恢复内置”会删除自定义选择。资源缺失时 WPhone 回退到内置或系统默认声音。`/api/status` 会报告当前文件名、时长、是否自定义、50 秒过期时间、`timeSensitiveSetting` 和 `alertStyle`；后者为 `persistent` 才表示用户已选择持续横幅。
+AlarmKit 闹铃和来电顶部横幅默认都使用 [WPhoneIncomingCall.wav](Resources/WPhoneIncomingCall.wav)，但在主 App 中保存为两项独立偏好，可以选择不同文件并分别恢复内置。仓库内置的是 10 秒、单声道、22.05 kHz Linear PCM WAV，工程已把它复制到主 App 和 Packet Tunnel Extension 两个 bundle。文档选择器只显示 WAV、CAF 或 AIFF，采用“打开副本”模式，选择后直接导入；每个文件限制为不超过 10 秒、20 MB，并校验 Linear PCM、IMA4、µLaw 或 aLaw 编码。文件保存到 App Group 的 `Library/Sounds`，AlarmKit 铃声在调度前再同步到当前进程的数据容器。升级前保存的单一自定义铃声会自动复制为两项初始设置。资源缺失时 WPhone 回退到内置或系统默认声音。`/api/status` 会分别报告闹钟与横幅声音，并报告 50 秒过期时间、`timeSensitiveSetting` 和 `alertStyle`；后者为 `persistent` 才表示用户已选择持续横幅。
 
 VPN 只提供 Packet Tunnel Extension 的后台生命周期，不参与路由、代理或通知展示。停止 VPN 不再取消已经调度给系统的 AlarmKit 提醒；主 App 在前台时也仍可直接调度提醒。但局域网 HTTP 监听器运行在 Packet Tunnel 进程中，VPN 停止后 iOS 会终止该进程，因此在重新连接 VPN 前无法接收新的局域网事件。这是后台入口的生命周期限制，不是通知权限依赖 VPN。
 

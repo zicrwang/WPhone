@@ -43,9 +43,9 @@ Apple 的 [AlarmKit 示例](https://developer.apple.com/documentation/AlarmKit/s
 
 ## 自定义声音
 
-AlarmKit 的 `sound` 使用 `AlertConfiguration.AlertSound.named(...)`，本地通知使用同名 `UNNotificationSound`。工程把 [WPhoneIncomingCall.wav](../Resources/WPhoneIncomingCall.wav) 同时加入主 App 和 Packet Tunnel Extension 的 Resources build phase；内置文件为精确 10 秒、单声道 22.05 kHz Linear PCM WAV。
+AlarmKit 的 `sound` 使用 `AlertConfiguration.AlertSound.named(...)`，本地通知使用 `UNNotificationSound`。两条路径读取不同的运行时选择，默认都回退到 [WPhoneIncomingCall.wav](../Resources/WPhoneIncomingCall.wav)。工程把该文件同时加入主 App 和 Packet Tunnel Extension 的 Resources build phase；内置文件为精确 10 秒、单声道 22.05 kHz Linear PCM WAV。
 
-主 App 的“来电铃声”区域可以从“文件”选择 WAV、CAF 或 AIFF，限制为 10 秒和 20 MB，并校验 Linear PCM、IMA4、µLaw 或 aLaw 编码。文件存入 App Group 的 `Library/Sounds`，普通通知可直接读取；AlarmKit 调度前还会复制到当前主 App 或 Packet Tunnel 数据容器的 `Library/Sounds`。点击“恢复内置”会删除运行时选择。自定义资源丢失或复制失败时回退到内置声音，内置资源也缺失时再回退到系统默认声音。
+主 App 分为“闹钟铃声”和“顶部横幅铃声”两个区域。每项都可从系统文档选择器打开一份 WAV、CAF 或 AIFF，并可单独恢复内置；选择器使用复制模式，只展示支持的文件类型，选中文件后直接返回 WPhone。文件限制为 10 秒和 20 MB，并校验 Linear PCM、IMA4、µLaw 或 aLaw 编码。两项以不同文件名存入 App Group 的 `Library/Sounds`，普通通知直接读取横幅文件；AlarmKit 调度前只把闹钟文件复制到当前主 App 或 Packet Tunnel 数据容器的 `Library/Sounds`。旧版本的单一自定义铃声首次读取时会复制为两项。某项自定义资源丢失或复制失败时，该项独立回退到内置声音，内置资源也缺失时再回退到系统默认声音。
 
 ## 接口
 
@@ -105,7 +105,7 @@ POST /api/debug/stop
 | `soundDurationSeconds` | 当前铃声时长，最大为 10 |
 | `openBehavior` | 当前为 `open-wphone-then-wechat` |
 
-`notifications` 对象的 `timeSensitiveSetting` 应为 `enabled`；`alertStyle` 为 `persistent` 表示用户选择了持续横幅，为 `temporary` 表示临时横幅。应用只能读取这两个系统设置，不能修改。
+`notifications` 对象的 `incomingCallSound`、`incomingCallSoundAvailable`、`incomingCallSoundCustom` 和 `incomingCallSoundDurationSeconds` 描述顶部横幅的独立铃声。`timeSensitiveSetting` 应为 `enabled`；`alertStyle` 为 `persistent` 表示用户选择了持续横幅，为 `temporary` 表示临时横幅。应用只能读取这两个系统设置，不能修改。
 
 `GET /api/status` 的 `relay` 对象包含中继连接状态、主机、端口、连接时间和已接收事件数。Armbian 上的 `GET /health` 返回 `providers: 1` 才表示 iPhone 通道已经注册。
 
@@ -114,7 +114,7 @@ POST /api/debug/stop
 ## 真机验收
 
 1. 安装重签后的完整 IPA，确认 `PacketTunnel.appex` 一同安装。
-2. 启动 WPhone，允许通知、时效通知、AlarmKit 和 VPN 权限；从“通知设置”进入系统页，打开横幅和声音，需要时把横幅风格改为“持续”。可在“来电铃声”选择一份不超过 10 秒的受支持音频。
+2. 启动 WPhone，允许通知、时效通知、AlarmKit 和 VPN 权限；从“通知设置”进入系统页，打开横幅和声音，需要时把横幅风格改为“持续”。可分别为“闹钟铃声”和“顶部横幅铃声”选择一份不超过 10 秒的受支持音频。
 3. 暂不连接 VPN，先点击主 App 的 **Test Alarm**。若约 1 秒后响铃，说明主 App 权限、用途说明和 AlarmKit 配置有效。
 4. 点击 **Stop Alarm**，设置中继站 `192.168.2.99:18081`，再连接 VPN。
 5. 在 Armbian 请求 `http://192.168.2.99:18080/health`，确认 `providers` 为 `1`。

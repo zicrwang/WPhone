@@ -105,7 +105,7 @@ private struct ContentView: View {
     @StateObject private var tunnel = TunnelController()
     @State private var logText = ""
     @State private var showingLog = false
-    @State private var showingSoundImporter = false
+    @State private var soundImportKind: NotificationRouting.IncomingCallSoundKind?
 
     var body: some View {
         NavigationView {
@@ -140,31 +140,64 @@ private struct ContentView: View {
                     }
                 }
 
-                Section("来电铃声") {
+                Section("闹钟铃声") {
                     LabeledContent("当前") {
-                        Text(tunnel.incomingCallSoundStatus)
+                        Text(tunnel.alarmSoundStatus)
                             .multilineTextAlignment(.trailing)
                             .lineLimit(2)
                     }
 
                     HStack(spacing: 12) {
                         Button {
-                            showingSoundImporter = true
+                            soundImportKind = .alarm
                         } label: {
-                            Label("选择铃声", systemImage: "square.and.arrow.down")
+                            Label("选择文件", systemImage: "folder")
                         }
                         .buttonStyle(.borderedProminent)
 
                         Button {
-                            tunnel.restoreBundledIncomingCallSound()
+                            tunnel.restoreBundledIncomingCallSound(for: .alarm)
                         } label: {
                             Label("恢复内置", systemImage: "arrow.counterclockwise")
                         }
                         .buttonStyle(.bordered)
-                        .disabled(!NotificationRouting.isUsingCustomIncomingCallSound)
+                        .disabled(!NotificationRouting.isUsingCustomIncomingCallSound(.alarm))
                     }
 
-                    if let soundError = tunnel.incomingCallSoundError {
+                    if tunnel.incomingCallSoundErrorKind == .alarm,
+                       let soundError = tunnel.incomingCallSoundError {
+                        Text(soundError)
+                            .foregroundStyle(.red)
+                            .font(.footnote)
+                    }
+                }
+
+                Section("顶部横幅铃声") {
+                    LabeledContent("当前") {
+                        Text(tunnel.notificationSoundStatus)
+                            .multilineTextAlignment(.trailing)
+                            .lineLimit(2)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button {
+                            soundImportKind = .notification
+                        } label: {
+                            Label("选择文件", systemImage: "folder")
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button {
+                            tunnel.restoreBundledIncomingCallSound(for: .notification)
+                        } label: {
+                            Label("恢复内置", systemImage: "arrow.counterclockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!NotificationRouting.isUsingCustomIncomingCallSound(.notification))
+                    }
+
+                    if tunnel.incomingCallSoundErrorKind == .notification,
+                       let soundError = tunnel.incomingCallSoundError {
                         Text(soundError)
                             .foregroundStyle(.red)
                             .font(.footnote)
@@ -248,18 +281,23 @@ private struct ContentView: View {
                 }
             }
         }
-        .fileImporter(
-            isPresented: $showingSoundImporter,
-            allowedContentTypes: [.audio],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first else { return }
-                Task { await tunnel.installIncomingCallSound(from: url) }
-            case .failure(let error):
-                tunnel.recordIncomingCallSoundImportError(error)
-            }
+        .fullScreenCover(item: $soundImportKind) { kind in
+            SoundDocumentPicker(
+                onPick: { url in
+                    soundImportKind = nil
+                    Task {
+                        await tunnel.installIncomingCallSound(from: url, for: kind)
+                    }
+                },
+                onCancel: {
+                    soundImportKind = nil
+                },
+                onError: { error in
+                    soundImportKind = nil
+                    tunnel.recordIncomingCallSoundImportError(error, for: kind)
+                }
+            )
+            .ignoresSafeArea()
         }
     }
 
@@ -268,5 +306,66 @@ private struct ContentView: View {
             return
         }
         UIApplication.shared.open(url)
+    }
+}
+
+private struct SoundDocumentPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+    let onCancel: () -> Void
+    let onError: (Error) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        var contentTypes: [UTType] = [.wav, .aiff]
+        if let caf = UTType(filenameExtension: "caf", conformingTo: .audio) {
+            contentTypes.append(caf)
+        }
+        let picker = UIDocumentPickerViewController(
+            forOpeningContentTypes: contentTypes,
+            asCopy: true
+        )
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        picker.shouldShowFileExtensions = true
+        return picker
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIDocumentPickerViewController,
+        context: Context
+    ) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private let parent: SoundDocumentPicker
+
+        init(parent: SoundDocumentPicker) {
+            self.parent = parent
+        }
+
+        func documentPicker(
+            _ controller: UIDocumentPickerViewController,
+            didPickDocumentsAt urls: [URL]
+        ) {
+            guard let url = urls.first else {
+                parent.onError(SoundDocumentPickerError.noFileSelected)
+                return
+            }
+            parent.onPick(url)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            parent.onCancel()
+        }
+    }
+}
+
+private enum SoundDocumentPickerError: LocalizedError {
+    case noFileSelected
+
+    var errorDescription: String? {
+        "未选择铃声文件"
     }
 }

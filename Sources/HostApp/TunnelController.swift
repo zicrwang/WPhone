@@ -18,8 +18,10 @@ final class TunnelController: NSObject, ObservableObject {
     @Published private(set) var alarmAuthorizationStatus = "unknown"
     @Published private(set) var notificationTimeSensitiveStatus = "unknown"
     @Published private(set) var notificationBannerStyle = "unknown"
-    @Published private(set) var incomingCallSoundStatus = "内置铃声 · 10秒"
+    @Published private(set) var alarmSoundStatus = "内置铃声 · 10秒"
+    @Published private(set) var notificationSoundStatus = "内置铃声 · 10秒"
     @Published private(set) var incomingCallSoundError: String?
+    @Published private(set) var incomingCallSoundErrorKind: NotificationRouting.IncomingCallSoundKind?
     @Published var relayHost = TunnelController.defaultRelayHost
     @Published var relayPort = String(TunnelController.defaultRelayPort)
 
@@ -79,19 +81,30 @@ final class TunnelController: NSObject, ObservableObject {
     }
 
     func refreshIncomingCallSoundStatus() {
-        let duration = NotificationRouting.incomingCallSoundDurationSeconds
+        alarmSoundStatus = incomingCallSoundStatus(for: .alarm)
+        notificationSoundStatus = incomingCallSoundStatus(for: .notification)
+    }
+
+    private func incomingCallSoundStatus(
+        for kind: NotificationRouting.IncomingCallSoundKind
+    ) -> String {
+        let duration = NotificationRouting.incomingCallSoundDurationSeconds(for: kind)
         let formattedDuration = duration.rounded() == duration
             ? String(Int(duration))
             : String(format: "%.1f", duration)
-        if let originalName = NotificationRouting.incomingCallSoundOriginalName {
-            incomingCallSoundStatus = "\(originalName) · \(formattedDuration)秒"
+        if let originalName = NotificationRouting.incomingCallSoundOriginalName(for: kind) {
+            return "\(originalName) · \(formattedDuration)秒"
         } else {
-            incomingCallSoundStatus = "内置铃声 · \(formattedDuration)秒"
+            return "内置铃声 · \(formattedDuration)秒"
         }
     }
 
-    func installIncomingCallSound(from url: URL) async {
+    func installIncomingCallSound(
+        from url: URL,
+        for kind: NotificationRouting.IncomingCallSoundKind
+    ) async {
         incomingCallSoundError = nil
+        incomingCallSoundErrorKind = kind
         let accessed = url.startAccessingSecurityScopedResource()
         defer {
             if accessed {
@@ -135,11 +148,13 @@ final class TunnelController: NSObject, ObservableObject {
             _ = try NotificationRouting.installCustomIncomingCallSound(
                 from: url,
                 originalName: url.lastPathComponent,
-                duration: durationSeconds
+                duration: durationSeconds,
+                for: kind
             )
             refreshIncomingCallSoundStatus()
+            incomingCallSoundErrorKind = nil
             SharedLogger.shared.info(
-                "Custom incoming-call sound installed name=\(url.lastPathComponent) " +
+                "Custom \(kind.rawValue) sound installed name=\(url.lastPathComponent) " +
                     "duration=\(String(format: "%.3f", durationSeconds))"
             )
         } catch {
@@ -150,22 +165,30 @@ final class TunnelController: NSObject, ObservableObject {
         }
     }
 
-    func restoreBundledIncomingCallSound() {
+    func restoreBundledIncomingCallSound(
+        for kind: NotificationRouting.IncomingCallSoundKind
+    ) {
         do {
-            try NotificationRouting.restoreBundledIncomingCallSound()
+            try NotificationRouting.restoreBundledIncomingCallSound(for: kind)
             incomingCallSoundError = nil
+            incomingCallSoundErrorKind = nil
             refreshIncomingCallSoundStatus()
-            SharedLogger.shared.info("Bundled incoming-call sound restored")
+            SharedLogger.shared.info("Bundled \(kind.rawValue) sound restored")
         } catch {
             incomingCallSoundError = error.localizedDescription
+            incomingCallSoundErrorKind = kind
             SharedLogger.shared.error(
                 "Unable to restore bundled incoming-call sound: \(error.localizedDescription)"
             )
         }
     }
 
-    func recordIncomingCallSoundImportError(_ error: Error) {
+    func recordIncomingCallSoundImportError(
+        _ error: Error,
+        for kind: NotificationRouting.IncomingCallSoundKind
+    ) {
         incomingCallSoundError = error.localizedDescription
+        incomingCallSoundErrorKind = kind
     }
 
     func requestAlarmAuthorization() async {

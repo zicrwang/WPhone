@@ -153,9 +153,9 @@ enum WPhoneAlarmConfiguration {
             metadata: WPhoneAlarmMetadata(caller: caller, callKey: callKey),
             tintColor: Color.green
         )
-        _ = try? NotificationRouting.prepareIncomingCallSoundForCurrentContainer()
+        _ = try? NotificationRouting.prepareIncomingCallAlarmSoundForCurrentContainer()
         let sound: AlertConfiguration.AlertSound
-        if let soundName = NotificationRouting.incomingCallAlarmSoundName() {
+        if let soundName = NotificationRouting.incomingCallAlarmSoundNameForScheduling() {
             sound = .named(soundName)
         } else {
             sound = .default
